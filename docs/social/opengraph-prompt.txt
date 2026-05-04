@@ -1,0 +1,13 @@
+Create a finished Open Graph social preview image for the GitHub repository DurableFlow. This is a developer-tool brand card, 16:9, clean and modern.
+
+Left side: a compact text block with exactly three lines of visible text, all spelled perfectly and fully inside safe margins.
+Line 1 large but not oversized: "DurableFlow".
+Line 2 medium: "Durable workflows for Rails".
+Line 3 small: "Active Job continuations • Active Record persistence • Live observability".
+Do not wrap line 2. Keep all text within the left half, with generous top, left, and bottom padding; no text may be cropped.
+
+Right side: abstract dark-mode Rails workflow observability UI, not a literal screenshot. Show layered rounded panels, a workflow timeline, connected nodes, green succeeded status pills, amber completed status pills, wait/event cards, code/log blocks represented by abstract grey bars only. The UI may contain simple status words like "succeeded" and "completed" only; otherwise no readable UI text, no random letters, no fake code, no gibberish.
+
+Style: off-white background, deep charcoal panels, muted green, soft blue, amber accents, 8px rounded corners, restrained shadows, high contrast, calm production-grade developer tool aesthetic.
+
+No logos except the word DurableFlow, no watermarks, no people, no animals, no photographic objects.
