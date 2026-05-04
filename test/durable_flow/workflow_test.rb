@@ -254,6 +254,24 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     end
   end
 
+  test "framework structured events are not stored as workflow events" do
+    assert_not DurableFlow.record_event?("active_record.sql")
+    assert_not DurableFlow.record_event?("sql.active_record")
+    assert_not DurableFlow.record_event?("active_job.step")
+    assert_not DurableFlow.record_event?("perform_start.active_job")
+    assert DurableFlow.record_event?("approved")
+    assert DurableFlow.record_event?(DurableFlow::WORKFLOW_COMPLETED_EVENT)
+
+    assert_no_difference -> { DurableFlow::WorkflowEvent.count } do
+      Rails.event.notify("active_record.sql", sql: "select 1")
+      Rails.event.notify("active_job.step", step: "load_user")
+    end
+
+    assert_difference -> { DurableFlow::WorkflowEvent.count }, 1 do
+      Rails.event.notify("approved", token: "abc")
+    end
+  end
+
   test "wait for event times out" do
     WaitWorkflow.events = []
 

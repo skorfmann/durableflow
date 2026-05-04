@@ -344,7 +344,7 @@ mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-21 runs, 146 assertions, 0 failures, 0 errors, 0 skips
+22 runs, 156 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Copyable App Prompt

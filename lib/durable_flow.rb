@@ -38,6 +38,18 @@ module DurableFlow
 
   WORKFLOW_COMPLETED_EVENT = "durable_flow.workflow.completed"
   WORKFLOW_FAILED_EVENT = "durable_flow.workflow.failed"
+  IGNORED_EVENT_NAMESPACES = %w[
+    action_controller
+    action_mailbox
+    action_mailer
+    action_text
+    action_view
+    active_job
+    active_record
+    active_storage
+    active_support
+    rails
+  ].freeze
 
   class << self
     def subscribe_to_rails_events!
@@ -116,7 +128,9 @@ module DurableFlow
       name = name.to_s
       return true if name.start_with?("durable_flow.")
 
-      !name.match?(/\.(active_job|active_record|action_controller|action_view|rails)\z/)
+      IGNORED_EVENT_NAMESPACES.none? do |namespace|
+        name == namespace || name.start_with?("#{namespace}.") || name.end_with?(".#{namespace}")
+      end
     end
 
     private
