@@ -28,13 +28,13 @@ Gem::Specification.new do |spec|
 
   spec.require_paths = [ "lib" ]
 
-  spec.add_dependency "actionpack", ">= 8.2.0.alpha"
-  spec.add_dependency "activejob", ">= 8.2.0.alpha"
-  spec.add_dependency "activerecord", ">= 8.2.0.alpha"
-  spec.add_dependency "activesupport", ">= 8.2.0.alpha"
-  spec.add_dependency "railties", ">= 8.2.0.alpha"
+  spec.add_dependency "actionpack", ">= 8.1.0", "< 9.0"
+  spec.add_dependency "activejob", ">= 8.1.0", "< 9.0"
+  spec.add_dependency "activerecord", ">= 8.1.0", "< 9.0"
+  spec.add_dependency "activesupport", ">= 8.1.0", "< 9.0"
+  spec.add_dependency "railties", ">= 8.1.0", "< 9.0"
 
-  spec.add_development_dependency "minitest", ">= 5.20"
+  spec.add_development_dependency "minitest", "~> 5.20"
   spec.add_development_dependency "solid_queue", "1.1.2"
   spec.add_development_dependency "sqlite3", "~> 2.0"
 end

@@ -7,8 +7,17 @@ ruby ">= 3.2.0"
 gemspec
 
 rails_path = File.expand_path("vendor/rails", __dir__)
+rails_version = ENV["RAILS_VERSION"]
 
-if Dir.exist?(rails_path)
+if rails_version
+  gem "actionpack", rails_version
+  gem "actionview", rails_version
+  gem "activejob", rails_version
+  gem "activemodel", rails_version
+  gem "activerecord", rails_version
+  gem "activesupport", rails_version
+  gem "railties", rails_version
+elsif Dir.exist?(rails_path)
   gem "actionpack", path: File.join(rails_path, "actionpack")
   gem "actionview", path: File.join(rails_path, "actionview")
   gem "activejob", path: File.join(rails_path, "activejob")

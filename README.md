@@ -136,10 +136,11 @@ Open `http://127.0.0.1:4568/live`, start one or more review workflows, then appr
 
 ## Status
 
-This is a working prototype targeted at the current vendored Rails `8.2.0.alpha` continuation APIs in `vendor/rails`.
+This is a working prototype targeted at Rails 8.1+ continuation and structured event APIs.
 
 Verified behavior:
 
+- Rails 8.1.3 compatibility.
 - Step return-value memoization across replays.
 - Dynamic string step names.
 - Cursor-based `ActiveJob::Continuable` loops.
@@ -435,6 +436,12 @@ Run the suite against the vendored Rails copy:
 mise exec ruby@3.4 -- bundle exec rake test
 ```
 
+Run it against released Rails 8.1:
+
+```sh
+RAILS_VERSION=8.1.3 mise exec ruby@3.4 -- bundle exec rake test
+```
+
 Current suite:
 
 ```text
@@ -445,17 +452,9 @@ Current suite:
 
 Gem releases are published manually from GitHub Actions using pre-1.0 SemVer versions such as `0.1.0`, `0.1.1`, and `0.2.0`.
 
-Before the first release, configure a pending trusted publisher on RubyGems.org:
+Open **Actions -> Release gem -> Run workflow**, select `main`, and enter the version to publish.
 
-- Gem name: `durable_flow`
-- Repository owner: `skorfmann`
-- Repository name: `durableflow`
-- Workflow filename: `release.yml`
-- Environment: `release`
-
-Then open **Actions -> Release gem -> Run workflow**, select `main`, and enter the version to publish.
-
-The workflow validates the `x.y.z` version input, writes that version into `lib/durable_flow/version.rb` inside the CI checkout, runs the test suite, builds the gem, authenticates to RubyGems through trusted publishing, and pushes the gem. No RubyGems API token is stored in GitHub.
+The workflow validates the `x.y.z` version input, writes that version into `lib/durable_flow/version.rb` inside the CI checkout, runs the test suite, builds the gem, and pushes it to RubyGems.
 
 ## Copyable App Prompt
 
