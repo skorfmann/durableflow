@@ -1,0 +1,19 @@
+# Bundler
+/.bundle/
+/Gemfile.lock
+
+# Generated artifacts
+/coverage/
+/log/
+/pkg/
+/tmp/
+
+# Local Rails checkout used while developing against unreleased Rails APIs.
+/vendor/
+
+# Local planning notes.
+/draft.md
+
+# OS/editor noise
+.DS_Store
+*.swp

@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>DurableFlow Runs</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; color: #17202a; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border-bottom: 1px solid #d8dee4; padding: .55rem .7rem; text-align: left; }
+      th { font-size: .8rem; color: #57606a; text-transform: uppercase; }
+      a { color: #0969da; text-decoration: none; }
+      .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <h1>Workflow Runs</h1>
+    <table>
+      <thead>
+        <tr>
+          <th>Run</th>
+          <th>Workflow</th>
+          <th>Status</th>
+          <th>Started</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @workflow_runs.each do |run| %>
+          <tr>
+            <td><%= link_to run.run_id, workflow_run_path(run.run_id) %></td>
+            <td><%= run.workflow_class %></td>
+            <td class="status"><%= run.status %></td>
+            <td><%= run.started_at || run.created_at %></td>
+            <td><%= run.updated_at %></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </body>
+</html>

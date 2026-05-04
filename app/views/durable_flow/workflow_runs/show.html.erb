@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title><%= @workflow_run.run_id %></title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; color: #17202a; }
+      table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+      th, td { border-bottom: 1px solid #d8dee4; padding: .55rem .7rem; text-align: left; vertical-align: top; }
+      th { font-size: .8rem; color: #57606a; text-transform: uppercase; }
+      pre { white-space: pre-wrap; font-size: .85rem; margin: 0; }
+      .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    </style>
+  </head>
+  <body>
+    <p><%= link_to "Workflow Runs", workflow_runs_path %></p>
+    <h1><%= @workflow_run.workflow_class %></h1>
+    <p><strong>Run:</strong> <%= @workflow_run.run_id %></p>
+    <p><strong>Status:</strong> <span class="status"><%= @workflow_run.status %></span></p>
+
+    <h2>Steps</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Attempts</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @workflow_steps.each do |step| %>
+          <tr>
+            <td><%= step.name %></td>
+            <td class="status"><%= step.status %></td>
+            <td><%= step.attempts %></td>
+            <td><pre><%= JSON.pretty_generate(step.result) if step.result %></pre></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+
+    <h2>Waits</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Event</th>
+          <th>Status</th>
+          <th>Timeout</th>
+          <th>Match</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% @workflow_waits.each do |wait| %>
+          <tr>
+            <td><%= wait.event_name %></td>
+            <td class="status"><%= wait.status %></td>
+            <td><%= wait.timeout_at %></td>
+            <td><pre><%= JSON.pretty_generate(wait.match) if wait.match %></pre></td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </body>
+</html>
