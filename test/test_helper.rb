@@ -32,6 +32,7 @@ class DurableFlowTestCase < ActiveSupport::TestCase
     clear_performed_jobs
     DurableFlow::WorkflowWait.delete_all
     DurableFlow::WorkflowEvent.delete_all
+    DurableFlow::WorkflowLog.delete_all
     DurableFlow::WorkflowStep.delete_all
     DurableFlow::WorkflowRun.delete_all
   end

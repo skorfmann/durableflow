@@ -73,5 +73,21 @@ class CreateDurableFlowTables < ActiveRecord::Migration[8.0]
     add_index :durable_flow_workflow_waits,
       [ :event_name, :status ],
       name: "idx_durable_flow_waits_on_event_status"
+
+    create_table :durable_flow_workflow_logs do |t|
+      t.references :workflow_run, null: false, index: false
+      t.references :workflow_step, index: false
+      t.string :level, null: false
+      t.string :message, null: false
+      t.json :data
+      t.timestamps
+    end
+
+    add_index :durable_flow_workflow_logs,
+      [ :workflow_run_id, :created_at ],
+      name: "idx_durable_flow_logs_on_run_time"
+    add_index :durable_flow_workflow_logs,
+      [ :workflow_step_id, :created_at ],
+      name: "idx_durable_flow_logs_on_step_time"
   end
 end

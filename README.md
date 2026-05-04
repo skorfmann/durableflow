@@ -26,7 +26,7 @@ The goal is durable, observable workflows without a separate workflow server, Re
 
 ## UI
 
-DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, step timelines, waits, arguments, and errors.
+DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, step timelines, waits, workflow logs, arguments, and errors.
 
 ![DurableFlow workflow runs index](docs/screenshots/workflow-runs.png)
 
@@ -34,7 +34,7 @@ DurableFlow ships with a small mountable Rails engine for inspecting workflow ru
 
 ## Live Updates
 
-DurableFlow emits committed lifecycle changes for workflow runs, steps, waits, and events. The default broadcaster is a no-op, so live UI is opt-in.
+DurableFlow emits committed lifecycle changes for workflow runs, steps, waits, events, and workflow logs. The default broadcaster is a no-op, so live UI is opt-in.
 
 ```ruby
 # config/initializers/durable_flow.rb
@@ -51,7 +51,7 @@ end
 Each change includes:
 
 ```ruby
-change.type           # "workflow_run.updated", "workflow_step.created", ...
+change.type           # "workflow_run.updated", "workflow_step.created", "workflow_log.created", ...
 change.run_id         # nil for standalone workflow_event.created changes
 change.workflow_class
 change.record_class
@@ -101,6 +101,7 @@ Verified behavior:
 - Solid Queue `1.1.2` integration.
 - Database-backed workflow execution leases to prevent concurrent execution of the same run.
 - Opt-in live lifecycle broadcasts through `DurableFlow.live_broadcaster`.
+- Explicit workflow logs through `log.info`, `log.warn`, `log.error`, and `log.debug`.
 
 ## Install
 
@@ -255,6 +256,17 @@ child_run_id = step(:start_child) { SendInvoiceWorkflow.perform_later(invoice.id
 completion = step.wait_for_workflow(:child_finished, child_run_id, timeout: 1.hour)
 ```
 
+Write structured workflow logs:
+
+```ruby
+step(:create_refund) do
+  log.info("Creating refund", refund_id: refund.id, amount_cents: refund.amount_cents)
+  Refunds.create!(refund)
+end
+```
+
+Logs are persisted with the current workflow run and, when called inside a step, the current workflow step. They also emit `workflow_log.created` live changes.
+
 ## Iteration Patterns
 
 Small bounded list: one memoized step per item.
@@ -305,8 +317,9 @@ The install generator creates:
 - `durable_flow_workflow_steps`
 - `durable_flow_workflow_events`
 - `durable_flow_workflow_waits`
+- `durable_flow_workflow_logs`
 
-Step results and workflow arguments are serialized through Active Job. Event payloads are stored from `Rails.event` notifications and matched against pending waits.
+Step results, workflow arguments, and log data are serialized through Active Job. Event payloads are stored from `Rails.event` notifications and matched against pending waits.
 
 ## Testing
 
@@ -321,7 +334,7 @@ mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-21 runs, 135 assertions, 0 failures, 0 errors, 0 skips
+21 runs, 146 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Copyable App Prompt
@@ -347,7 +360,8 @@ Tasks:
 8. Put all side effects inside named step blocks.
 9. Use step.sleep for durable delays.
 10. Use step.wait_for_event for external callbacks or user actions, and emit matching Rails.event.notify calls from the app code that receives those callbacks.
-11. Add tests that prove:
+11. Add log.info/log.warn/log.error calls for important workflow milestones, using structured fields such as model ids, tokens, and external request ids.
+12. Add tests that prove:
     - completed steps do not run twice on replay,
     - sleep resumes correctly,
     - event waits resume only for matching payloads,
@@ -357,6 +371,7 @@ Important constraints:
 - Step names must be stable across replays.
 - Step return values must be Active Job serializable.
 - Code outside step blocks must be deterministic and cheap.
+- Workflow log data must be Active Job serializable.
 - If a single step can run longer than DurableFlow.execution_lock_ttl without checkpointing, increase the TTL or split the work into checkpointed chunks.
 ```
 

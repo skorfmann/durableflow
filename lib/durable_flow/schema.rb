@@ -9,6 +9,7 @@ module DurableFlow
       create_workflow_steps(connection)
       create_workflow_events(connection)
       create_workflow_waits(connection)
+      create_workflow_logs(connection)
     end
 
     def create_workflow_runs(connection)
@@ -118,6 +119,26 @@ module DurableFlow
       connection.add_index :durable_flow_workflow_waits,
         [ :event_name, :status ],
         name: "idx_durable_flow_waits_on_event_status"
+    end
+
+    def create_workflow_logs(connection)
+      return if connection.data_source_exists?(:durable_flow_workflow_logs)
+
+      connection.create_table :durable_flow_workflow_logs do |t|
+        t.references :workflow_run, null: false, index: false
+        t.references :workflow_step, index: false
+        t.string :level, null: false
+        t.string :message, null: false
+        t.json :data
+        t.timestamps
+      end
+
+      connection.add_index :durable_flow_workflow_logs,
+        [ :workflow_run_id, :created_at ],
+        name: "idx_durable_flow_logs_on_run_time"
+      connection.add_index :durable_flow_workflow_logs,
+        [ :workflow_step_id, :created_at ],
+        name: "idx_durable_flow_logs_on_step_time"
     end
   end
 end

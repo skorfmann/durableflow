@@ -127,6 +127,27 @@
       </div>
     <% end %>
 
+    <% if @workflow_logs.any? %>
+      <div class="df-side-section">
+        <h3>Logs</h3>
+        <% @workflow_logs.each do |log| %>
+          <div class="df-kv">
+            <div class="df-kv-key"><%= durable_flow_format_time(log.created_at) %></div>
+            <div class="df-kv-value">
+              <span class="df-status <%= durable_flow_status_class(log.level) %>"><%= log.level %></span>
+              <div style="margin-top: 8px; font-weight: 650;"><%= log.message %></div>
+              <% if log.workflow_step %>
+                <div class="df-muted" style="margin-top: 4px;">Step: <%= log.workflow_step.name %></div>
+              <% end %>
+              <% if log.data.present? %>
+                <pre class="df-code"><%= durable_flow_json(log.data) %></pre>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+
     <% if @workflow_run.arguments.present? %>
       <div class="df-side-section">
         <h3>Arguments</h3>

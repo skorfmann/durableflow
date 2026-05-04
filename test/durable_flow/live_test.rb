@@ -5,11 +5,19 @@ require "test_helper"
 class DurableFlowLiveTest < DurableFlowTestCase
   class LiveWorkflow < DurableFlow::Workflow
     def perform(token)
-      step(:prepare) { { token: token } }
+      log.info("Workflow started", token: token)
+
+      step(:prepare) do
+        log.info("Preparing approval wait", token: token)
+        { token: token }
+      end
 
       event = step.wait_for_event(:approved, timeout: 1.hour, match: { token: token })
 
-      step(:finish) { event[:token] }
+      step(:finish) do
+        log.warn("Finishing after approval", token: event[:token])
+        event[:token]
+      end
     end
   end
 
@@ -40,6 +48,14 @@ class DurableFlowLiveTest < DurableFlowTestCase
       assert_live_change changes, "workflow_step.created", run_id: run.run_id, name: "prepare", status: "pending"
       assert_live_change changes, "workflow_step.updated", run_id: run.run_id, name: "prepare", status: "succeeded"
       assert_live_change changes, "workflow_wait.created", run_id: run.run_id, event_name: "approved", status: "pending"
+      assert_live_change changes, "workflow_log.created", run_id: run.run_id, level: "info", message: "Workflow started"
+      assert_live_change changes, "workflow_log.created", run_id: run.run_id, level: "info", message: "Preparing approval wait"
+
+      run_log = run.workflow_logs.find_by!(message: "Workflow started")
+      step_log = run.workflow_logs.find_by!(message: "Preparing approval wait")
+      assert_nil run_log.workflow_step
+      assert_equal "prepare", step_log.workflow_step.name
+      assert_equal({ token: "live-1" }, step_log.data_value)
 
       Rails.event.notify(:approved, token: "live-1")
       perform_enqueued_jobs(at: Time.current)
@@ -48,6 +64,7 @@ class DurableFlowLiveTest < DurableFlowTestCase
       assert_live_change changes, "workflow_wait.updated", run_id: run.run_id, event_name: "approved", status: "matched"
       assert_live_change changes, "workflow_step.updated", run_id: run.run_id, name: "finish", status: "succeeded"
       assert_live_change changes, "workflow_run.updated", run_id: run.run_id, status: "completed"
+      assert_live_change changes, "workflow_log.created", run_id: run.run_id, level: "warn", message: "Finishing after approval"
 
       event_change = changes.find { |change| change.type == "workflow_event.created" && change.snapshot[:name] == "approved" }
       assert_kind_of DurableFlow::Live::Change, event_change
@@ -55,6 +72,11 @@ class DurableFlowLiveTest < DurableFlowTestCase
       assert_equal "DurableFlow::WorkflowEvent", event_change.record_class
       assert_equal "approved", event_change.payload.fetch(:name)
       assert_equal wait.reload.workflow_event_id, event_change.record_id
+
+      log_change = changes.find { |change| change.type == "workflow_log.created" && change.snapshot[:message] == "Finishing after approval" }
+      assert_equal "DurableFlow::WorkflowLog", log_change.record_class
+      assert_equal "warn", log_change.payload.fetch(:level)
+      assert_equal "Finishing after approval", log_change.payload.fetch(:message)
     end
   end
 

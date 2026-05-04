@@ -7,6 +7,7 @@ module DurableFlow
     self.table_name = "durable_flow_workflow_steps"
 
     belongs_to :workflow_run, class_name: "DurableFlow::WorkflowRun"
+    has_many :workflow_logs, class_name: "DurableFlow::WorkflowLog", dependent: :nullify
 
     def succeeded?
       status == "succeeded"

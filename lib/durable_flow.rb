@@ -14,11 +14,13 @@ require "durable_flow/errors"
 require "durable_flow/serializer"
 require "durable_flow/schema"
 require "durable_flow/live"
+require "durable_flow/workflow_logger"
 require "durable_flow/models/application_record"
 require "durable_flow/models/workflow_run"
 require "durable_flow/models/workflow_step"
 require "durable_flow/models/workflow_event"
 require "durable_flow/models/workflow_wait"
+require "durable_flow/models/workflow_log"
 require "durable_flow/dispatcher"
 require "durable_flow/event_subscriber"
 require "durable_flow/step_proxy"
@@ -102,6 +104,7 @@ module DurableFlow
         durable_flow_workflow_steps
         durable_flow_workflow_events
         durable_flow_workflow_waits
+        durable_flow_workflow_logs
       ].all? { |table| connection.data_source_exists?(table) }
     rescue ActiveRecord::ActiveRecordError
       false

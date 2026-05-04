@@ -40,6 +40,7 @@ class DurableFlowSolidQueueIntegrationTest < ActiveSupport::TestCase
 
     def perform(trial_id)
       trial = step(:create_trial) do
+        log.info("Created trial", trial_id: trial_id)
         self.class.events << [ :created, trial_id ]
         { id: trial_id }
       end
@@ -49,6 +50,7 @@ class DurableFlowSolidQueueIntegrationTest < ActiveSupport::TestCase
       event = step.wait_for_event(:trial_confirmed, timeout: 1.hour, match: { trial_id: trial[:id] })
 
       step(:finalize) do
+        log.info("Finalized trial", trial_id: event[:trial_id])
         self.class.events << [ :finalized, event[:trial_id] ]
         true
       end
@@ -140,6 +142,8 @@ class DurableFlowSolidQueueIntegrationTest < ActiveSupport::TestCase
       assert_live_change "workflow_wait.created", run_id: run.run_id, event_name: "trial_confirmed", status: "pending"
       assert_live_change "workflow_wait.updated", run_id: run.run_id, event_name: "trial_confirmed", status: "matched"
       assert_live_change "workflow_event.created", name: "trial_confirmed"
+      assert_live_change "workflow_log.created", run_id: run.run_id, level: "info", message: "Created trial"
+      assert_live_change "workflow_log.created", run_id: run.run_id, level: "info", message: "Finalized trial"
     end
   end
 

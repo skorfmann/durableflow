@@ -10,6 +10,7 @@ module DurableFlow
 
     has_many :workflow_steps, class_name: "DurableFlow::WorkflowStep", dependent: :delete_all
     has_many :workflow_waits, class_name: "DurableFlow::WorkflowWait", dependent: :delete_all
+    has_many :workflow_logs, class_name: "DurableFlow::WorkflowLog", dependent: :delete_all
 
     scope :active, -> { where.not(status: TERMINAL_STATUSES) }
 

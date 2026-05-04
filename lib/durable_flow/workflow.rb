@@ -73,6 +73,10 @@ module DurableFlow
       StepProxy.new(self).wait_for_workflow(name, workflow_or_run_id, timeout: timeout)
     end
 
+    def log
+      @workflow_logger ||= WorkflowLogger.new(self)
+    end
+
     private
       attr_reader :current_workflow_step
 

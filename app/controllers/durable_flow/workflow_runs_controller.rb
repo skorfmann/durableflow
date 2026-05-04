@@ -19,6 +19,7 @@ module DurableFlow
       @workflow_run = WorkflowRun.find_by!(run_id: params[:run_id])
       @workflow_steps = @workflow_run.workflow_steps.order(:created_at)
       @workflow_waits = @workflow_run.workflow_waits.includes(:workflow_event).order(:created_at)
+      @workflow_logs = @workflow_run.workflow_logs.includes(:workflow_step).ordered
     end
 
     private
@@ -30,8 +31,12 @@ module DurableFlow
           "danger"
         when "waiting", "sleeping", "pending"
           "waiting"
-        when "running", "ready", "retrying", "enqueued"
+        when "running", "ready", "retrying", "enqueued", "info"
           "active"
+        when "warn"
+          "waiting"
+        when "error"
+          "danger"
         else
           "neutral"
         end
