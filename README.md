@@ -24,6 +24,10 @@ end
 
 The goal is durable, observable workflows without a separate workflow server, Redis dependency, or external control plane.
 
+## Alpha Notice
+
+DurableFlow is alpha software. The API and storage model will likely change as the design is exercised in real applications, and this gem has not yet been used in a production setting.
+
 ## UI
 
 DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, step timelines, waits, workflow logs, arguments, and errors.
