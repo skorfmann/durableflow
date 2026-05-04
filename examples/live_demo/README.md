@@ -18,7 +18,9 @@ http://127.0.0.1:4568/live
 
 The demo workflow creates a review request, waits for a human approval event,
 then applies the decision. The page updates live from `DurableFlow.live_broadcaster`
-and also links to the mounted engine UI at `/durable_flow`.
+and also links to the mounted engine UI at `/durable_flow`. Start can create
+multiple runs so the engine UI shows run history; use **Reset demo** to clear
+the local demo database.
 
 The local SQLite database is written to `examples/live_demo/db/live.sqlite3` and
 is ignored by git.

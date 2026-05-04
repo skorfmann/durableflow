@@ -117,7 +117,7 @@ The repo includes a small live Rails demo app at `examples/live_demo`.
 mise exec ruby@3.4 -- bundle exec ruby examples/live_demo/server.rb
 ```
 
-Open `http://127.0.0.1:4568/live`, start a review workflow, then approve or reject it. The page updates from `DurableFlow.live_broadcaster` using Server-Sent Events and links to the mounted engine UI at `/durable_flow`.
+Open `http://127.0.0.1:4568/live`, start one or more review workflows, then approve or reject the latest waiting run. The page updates from `DurableFlow.live_broadcaster` using Server-Sent Events and links to the mounted engine UI at `/durable_flow`. Use **Reset demo** to clear the local demo database.
 
 ## Status
 
