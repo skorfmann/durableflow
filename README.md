@@ -373,6 +373,53 @@ Step results, workflow arguments, and log data are serialized through Active Job
 
 Executable examples live in `examples/workflows.rb` and are covered by `test/durable_flow/examples_test.rb`.
 
+DurableFlow also ships test helpers for application test suites:
+
+```ruby
+# test/test_helper.rb
+require "durable_flow/test_helper"
+
+class ActiveSupport::TestCase
+  include DurableFlow::TestHelper
+
+  setup { clear_durable_flow! }
+end
+```
+
+Example workflow test:
+
+```ruby
+class TrialOnboardingWorkflowTest < ActiveSupport::TestCase
+  test "waits for trial activation and finishes" do
+    freeze_time do
+      changes = capture_durable_flow_changes do
+        TrialOnboardingWorkflow.perform_later(user_id: users(:ada).id, trial_id: trials(:pending).id)
+        perform_durable_flow_jobs(at: Time.current)
+      end
+
+      run = durable_flow_run_for(TrialOnboardingWorkflow)
+
+      assert_step_succeeded run, :send_welcome_email
+      assert_workflow_sleeping run, step: :wait_for_trial_activity
+      assert_durable_flow_change changes, "workflow_run.created"
+
+      travel_to_next_workflow_wake run
+      perform_durable_flow_jobs(at: Time.current)
+
+      assert_workflow_waiting_for run, :trial_activated, match: { trial_id: trials(:pending).id }
+
+      resume_workflows_for :trial_activated, trial_id: trials(:pending).id, source: "checkout"
+
+      assert_workflow_completed run
+      assert_step_result run, :mark_onboarded, true
+      assert_workflow_log run, level: :info, message: "Trial activated"
+    end
+  end
+end
+```
+
+Useful helpers include `perform_durable_flow_jobs`, `resume_workflows_for`, `travel_to_next_workflow_wake`, `durable_flow_run_for`, `durable_flow_timeline_for`, `assert_workflow_completed`, `assert_workflow_sleeping`, `assert_workflow_waiting_for`, `assert_step_succeeded`, `assert_step_result`, `assert_step_attempts`, `assert_workflow_log`, `assert_step_log`, `capture_durable_flow_changes`, and `assert_durable_flow_change`.
+
 Run the suite against the vendored Rails copy:
 
 ```sh
@@ -382,7 +429,7 @@ mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-23 runs, 181 assertions, 0 failures, 0 errors, 0 skips
+25 runs, 212 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Copyable App Prompt
@@ -409,7 +456,7 @@ Tasks:
 9. Use step.sleep for durable delays.
 10. Use step.wait_for_event for external callbacks or user actions, and emit matching Rails.event.notify calls from the app code that receives those callbacks.
 11. Add log.info/log.warn/log.error calls for important workflow milestones, using structured fields such as model ids, tokens, and external request ids.
-12. Add tests that prove:
+12. Add tests using DurableFlow::TestHelper that prove:
     - completed steps do not run twice on replay,
     - sleep resumes correctly,
     - event waits resume only for matching payloads,
