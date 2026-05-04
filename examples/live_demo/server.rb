@@ -200,6 +200,7 @@ end
 def log_to_json(log)
   {
     id: log.id,
+    workflow_step_id: log.workflow_step_id,
     level: log.level,
     message: log.message,
     display_data: safe_value { normalize_json(log.data_value) },
@@ -218,12 +219,36 @@ def render_json_block(value)
   "<pre>#{ERB::Util.html_escape(JSON.pretty_generate(value))}</pre>"
 end
 
-def render_steps(steps)
+def render_step_logs(logs)
+  return "" if logs.empty?
+
+  <<~HTML
+    <div class="step-logs">
+      <div class="step-logs-label">Logs</div>
+      #{logs.map do |log|
+        <<~LOG
+          <div class="step-log">
+            <div class="step-log-top">
+              <span class="status #{status_class(log.level)}">#{ERB::Util.html_escape(log.level)}</span>
+              <span class="step-log-message">#{ERB::Util.html_escape(log.message)}</span>
+            </div>
+            #{render_json_block(safe_value { normalize_json(log.data_value) })}
+          </div>
+        LOG
+      end.join}
+    </div>
+  HTML
+end
+
+def render_steps(steps, logs)
   return '<div class="empty">No steps yet. Start a run.</div>' if steps.empty?
+
+  logs_by_step_id = logs.select(&:workflow_step_id).group_by(&:workflow_step_id)
 
   steps.map do |step|
     payload = safe_value { step.result_value } || step.metadata_hash.presence
     cls = status_class(step.status)
+    step_logs = logs_by_step_id.fetch(step.id, [])
 
     <<~HTML
       <article class="step">
@@ -237,23 +262,9 @@ def render_steps(steps)
             <span class="status #{cls}">#{ERB::Util.html_escape(step.status)}</span>
           </div>
           #{render_json_block(normalize_json(payload))}
+          #{render_step_logs(step_logs)}
         </div>
       </article>
-    HTML
-  end.join
-end
-
-def render_logs(logs)
-  return '<div class="empty compact">No workflow logs yet.</div>' if logs.empty?
-
-  logs.map do |log|
-    <<~HTML
-      <div class="workflow-log-row">
-        <span class="status #{status_class(log.level)}">#{ERB::Util.html_escape(log.level)}</span>
-        <div class="workflow-log-message">#{ERB::Util.html_escape(log.message)}</div>
-        #{log.workflow_step ? "<div class=\"meta\">Step: #{ERB::Util.html_escape(log.workflow_step.name)}</div>" : ""}
-        #{render_json_block(safe_value { normalize_json(log.data_value) })}
-      </div>
     HTML
   end.join
 end
@@ -323,9 +334,12 @@ def render_live_page
           .value { overflow-wrap: anywhere; }
           .live-log { max-height: 260px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
           .live-log-row { padding: 8px 0; border-bottom: 1px solid #e1e5eb; overflow-wrap: anywhere; }
-          .workflow-log-row { padding: 14px 0; border-bottom: 1px solid #e1e5eb; }
-          .workflow-log-row:last-child { border-bottom: 0; }
-          .workflow-log-message { margin-top: 8px; font-weight: 700; }
+          .step-logs { margin-top: 12px; border: 1px solid #e1e5eb; border-radius: 8px; background: #fbfcfd; overflow: hidden; }
+          .step-logs-label { padding: 9px 12px; border-bottom: 1px solid #e1e5eb; color: #667085; font-size: 11px; font-weight: 760; text-transform: uppercase; }
+          .step-log { padding: 11px 12px; border-bottom: 1px solid #e1e5eb; }
+          .step-log:last-child { border-bottom: 0; }
+          .step-log-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+          .step-log-message { font-weight: 700; }
           .empty { padding: 30px 16px; color: #667085; text-align: center; }
           .empty.compact { padding: 10px 0; text-align: left; }
           @media (max-width: 900px) {
@@ -371,7 +385,7 @@ def render_live_page
                   <span id="run-status" class="status #{run ? status_class(run.status) : "active"}">#{run&.status || "idle"}</span>
                 </div>
                 <div class="timeline" id="timeline">
-                  #{render_steps(steps)}
+                  #{render_steps(steps, logs)}
                 </div>
               </section>
 
@@ -382,11 +396,6 @@ def render_live_page
                     <div class="kv"><div class="key">Run</div><div class="value" id="run-id">#{run&.run_id || "-"}</div></div>
                     <div class="kv"><div class="key">Waits</div><div class="value" id="waits">#{ERB::Util.html_escape(wait_summary(waits))}</div></div>
                   </div>
-                </aside>
-
-                <aside class="panel">
-                  <div class="panel-head"><div><div class="title">Workflow Logs</div><div class="subtitle">Explicit log.info/log.warn stream</div></div></div>
-                  <div class="side-section" id="workflow-logs">#{render_logs(logs)}</div>
                 </aside>
 
                 <aside class="panel">
@@ -401,7 +410,6 @@ def render_live_page
         <script>
           const timeline = document.getElementById("timeline");
           const liveLog = document.getElementById("live-log");
-          const workflowLogsEl = document.getElementById("workflow-logs");
           const runStatus = document.getElementById("run-status");
           const runSubtitle = document.getElementById("run-subtitle");
           const runId = document.getElementById("run-id");
@@ -413,7 +421,6 @@ def render_live_page
           #{logs.map { |log| "workflowLogs.set(#{log.id.to_json}, #{log_to_json(log).to_json});" }.join("\n")}
 
           renderTimeline();
-          renderWorkflowLogs();
 
           document.querySelectorAll("[data-post]").forEach((button) => {
             button.addEventListener("click", async () => {
@@ -424,7 +431,6 @@ def render_live_page
                   workflowLogs.clear();
                   liveLog.innerHTML = "";
                   renderTimeline();
-                  renderWorkflowLogs();
                 }
                 await fetch(button.dataset.post, { method: "POST" });
               } finally {
@@ -464,21 +470,21 @@ def render_live_page
             timeline.innerHTML = [...steps.values()].sort((a, b) => a.id - b.id).map((step) => {
               const cls = statusClass(step.status);
               const details = step.display_result || step.display_metadata;
-              return `<article class="step"><div class="rail"><span class="dot ${cls}"></span></div><div class="step-body"><div class="step-top"><div><div class="step-name">${escapeHtml(step.name)}</div><div class="meta">Attempt ${step.attempts || 0}</div></div><span class="status ${cls}">${escapeHtml(step.status)}</span></div>${renderBlock(details)}</div></article>`;
+              return `<article class="step"><div class="rail"><span class="dot ${cls}"></span></div><div class="step-body"><div class="step-top"><div><div class="step-name">${escapeHtml(step.name)}</div><div class="meta">Attempt ${step.attempts || 0}</div></div><span class="status ${cls}">${escapeHtml(step.status)}</span></div>${renderBlock(details)}${renderStepLogs(step)}</div></article>`;
             }).join("");
           }
 
-          function renderWorkflowLogs() {
-            if (workflowLogs.size === 0) {
-              workflowLogsEl.innerHTML = '<div class="empty compact">No workflow logs yet.</div>';
-              return;
-            }
+          function renderStepLogs(step) {
+            const logs = [...workflowLogs.values()]
+              .filter((log) => log.workflow_step_id === step.id)
+              .sort((a, b) => a.id - b.id);
 
-            workflowLogsEl.innerHTML = [...workflowLogs.values()].sort((a, b) => a.id - b.id).map((log) => {
+            if (logs.length === 0) return "";
+
+            return `<div class="step-logs"><div class="step-logs-label">Logs</div>${logs.map((log) => {
               const cls = statusClass(log.level);
-              const step = log.step_name ? `<div class="meta">Step: ${escapeHtml(log.step_name)}</div>` : "";
-              return `<div class="workflow-log-row"><span class="status ${cls}">${escapeHtml(log.level)}</span><div class="workflow-log-message">${escapeHtml(log.message)}</div>${step}${renderBlock(log.display_data)}</div>`;
-            }).join("");
+              return `<div class="step-log"><div class="step-log-top"><span class="status ${cls}">${escapeHtml(log.level)}</span><span class="step-log-message">${escapeHtml(log.message)}</span></div>${renderBlock(log.display_data)}</div>`;
+            }).join("")}</div>`;
           }
 
           function appendLiveEvent(change) {
@@ -497,7 +503,6 @@ def render_live_page
               steps.clear();
               workflowLogs.clear();
               renderTimeline();
-              renderWorkflowLogs();
             }
 
             if (change.run_id) runId.textContent = change.run_id;
@@ -519,7 +524,7 @@ def render_live_page
 
             if (change.type === "workflow_log.created") {
               workflowLogs.set(change.id, change);
-              renderWorkflowLogs();
+              renderTimeline();
             }
           });
         </script>

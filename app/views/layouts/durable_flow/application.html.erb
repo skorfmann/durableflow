@@ -361,6 +361,39 @@
         line-height: 1.55;
       }
 
+      .df-step-logs {
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #fbfcfd;
+        overflow: hidden;
+      }
+
+      .df-step-logs-label {
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 760;
+        text-transform: uppercase;
+      }
+
+      .df-step-log {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .df-step-log:last-child { border-bottom: 0; }
+
+      .df-step-log-top {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        flex-wrap: wrap;
+      }
+
+      .df-step-log-message { font-weight: 700; }
+
       .df-side-section {
         padding: 15px 16px;
         border-bottom: 1px solid var(--line);

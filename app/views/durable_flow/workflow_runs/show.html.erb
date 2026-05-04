@@ -37,6 +37,7 @@
 
     <div class="df-timeline">
       <% @workflow_steps.each do |step| %>
+        <% step_logs = @workflow_logs_by_step_id.fetch(step.id, []) %>
         <article class="df-step">
           <div class="df-step-rail">
             <span class="df-step-dot <%= durable_flow_status_class(step.status) %>"></span>
@@ -62,6 +63,23 @@
 
             <% if step.result.present? %>
               <pre class="df-code"><%= durable_flow_json(step.result) %></pre>
+            <% end %>
+
+            <% if step_logs.any? %>
+              <div class="df-step-logs">
+                <div class="df-step-logs-label">Logs</div>
+                <% step_logs.each do |log| %>
+                  <div class="df-step-log">
+                    <div class="df-step-log-top">
+                      <span class="df-status <%= durable_flow_status_class(log.level) %>"><%= log.level %></span>
+                      <span class="df-step-log-message"><%= log.message %></span>
+                    </div>
+                    <% if log.data.present? %>
+                      <pre class="df-code"><%= durable_flow_json(log.data_value) %></pre>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
             <% end %>
           </div>
         </article>
@@ -127,20 +145,17 @@
       </div>
     <% end %>
 
-    <% if @workflow_logs.any? %>
+    <% if @run_workflow_logs.any? %>
       <div class="df-side-section">
-        <h3>Logs</h3>
-        <% @workflow_logs.each do |log| %>
+        <h3>Run Logs</h3>
+        <% @run_workflow_logs.each do |log| %>
           <div class="df-kv">
             <div class="df-kv-key"><%= durable_flow_format_time(log.created_at) %></div>
             <div class="df-kv-value">
               <span class="df-status <%= durable_flow_status_class(log.level) %>"><%= log.level %></span>
               <div style="margin-top: 8px; font-weight: 650;"><%= log.message %></div>
-              <% if log.workflow_step %>
-                <div class="df-muted" style="margin-top: 4px;">Step: <%= log.workflow_step.name %></div>
-              <% end %>
               <% if log.data.present? %>
-                <pre class="df-code"><%= durable_flow_json(log.data) %></pre>
+                <pre class="df-code"><%= durable_flow_json(log.data_value) %></pre>
               <% end %>
             </div>
           </div>
