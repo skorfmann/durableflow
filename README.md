@@ -65,6 +65,21 @@ change.snapshot       # small serializable hash
 change.payload        # snapshot plus type/run metadata
 ```
 
+Workflow logs are emitted the same way:
+
+```ruby
+step(:create_refund) do
+  log.info("Creating refund", refund_id: refund.id)
+end
+
+# Broadcasts:
+change.type                       # "workflow_log.created"
+change.payload.fetch(:level)      # "info"
+change.payload.fetch(:message)    # "Creating refund"
+change.payload.fetch(:workflow_step_id)
+change.record.data_value          # { refund_id: ... } for in-process renderers
+```
+
 You can also register subscribers:
 
 ```ruby
