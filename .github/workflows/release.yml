@@ -47,8 +47,15 @@ jobs:
 
             path = "lib/durable_flow/version.rb"
             source = File.read(path)
+            current = source[/VERSION = "([^"]+)"/, 1]
+            abort "Could not find VERSION in #{path}" unless current
+
+            if current == version
+              puts "#{path} already has version #{version}"
+              exit
+            end
+
             updated = source.sub(/VERSION = ".*"/, %(VERSION = "#{version}"))
-            abort "Could not update #{path}" if source == updated
             File.write(path, updated)
           '
 
