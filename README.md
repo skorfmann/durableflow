@@ -153,6 +153,15 @@ Verified behavior:
 
 ## Install
 
+Use the current GitHub `main` branch:
+
+```ruby
+# Gemfile
+gem "durable_flow", git: "https://github.com/skorfmann/durableflow.git", branch: "main"
+```
+
+For a less moving target, pin a commit SHA with `ref:` instead of `branch:`.
+
 For local development before publishing the gem:
 
 ```ruby
@@ -440,8 +449,9 @@ Paste this into Codex, Claude Code, or another coding agent inside a Rails app:
 Add DurableFlow workflows to this Rails application.
 
 Use the DurableFlow gem from:
-- local path: ../durableflow
-- or published gem: durable_flow
+- GitHub main: gem "durable_flow", git: "https://github.com/skorfmann/durableflow.git", branch: "main"
+- local path: gem "durable_flow", path: "../durableflow"
+- or published gem: gem "durable_flow"
 
 Tasks:
 1. Add the gem to the Gemfile and run bundle install.
