@@ -68,10 +68,13 @@ class DurableFlowSolidQueueIntegrationTest < ActiveSupport::TestCase
     clear_solid_queue_tables
     clear_durable_flow_tables
     SolidWelcomeWorkflow.events = []
+    @live_changes = []
+    DurableFlow.live_broadcaster = ->(change) { @live_changes << change }
   end
 
   teardown do
     travel_back
+    DurableFlow.reset_live_broadcasters!
     clear_solid_queue_tables
     clear_durable_flow_tables
 
@@ -129,10 +132,34 @@ class DurableFlowSolidQueueIntegrationTest < ActiveSupport::TestCase
         [ :created, "solid-trial-1" ],
         [ :finalized, "solid-trial-1" ],
       ], SolidWelcomeWorkflow.events
+
+      assert_live_change "workflow_run.updated", run_id: run.run_id, status: "sleeping"
+      assert_live_change "workflow_run.updated", run_id: run.run_id, status: "waiting"
+      assert_live_change "workflow_run.updated", run_id: run.run_id, status: "completed"
+      assert_live_change "workflow_step.updated", run_id: run.run_id, name: "trial_delay", status: "sleeping"
+      assert_live_change "workflow_wait.created", run_id: run.run_id, event_name: "trial_confirmed", status: "pending"
+      assert_live_change "workflow_wait.updated", run_id: run.run_id, event_name: "trial_confirmed", status: "matched"
+      assert_live_change "workflow_event.created", name: "trial_confirmed"
     end
   end
 
   private
+    def assert_live_change(type, **snapshot)
+      change = @live_changes.find do |candidate|
+        candidate.type == type && snapshot.all? { |key, value| live_change_value(candidate, key) == value }
+      end
+
+      assert change, "Expected #{type} with #{snapshot.inspect}"
+    end
+
+    def live_change_value(change, key)
+      if change.snapshot.key?(key)
+        change.snapshot[key]
+      elsif change.respond_to?(key)
+        change.public_send(key)
+      end
+    end
+
     def drain_solid_queue(limit: 100)
       process = SolidQueue::Process.register(
         kind: "Worker",

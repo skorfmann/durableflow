@@ -2,6 +2,8 @@
 
 module DurableFlow
   class WorkflowEvent < ApplicationRecord
+    include Live::Broadcastable
+
     self.table_name = "durable_flow_workflow_events"
 
     has_many :workflow_waits, class_name: "DurableFlow::WorkflowWait"
@@ -34,6 +36,20 @@ module DurableFlow
 
         subset?(expected_value, actual_value)
       end
+    end
+
+    def live_snapshot
+      {
+        id: id,
+        name: name,
+        payload: payload,
+        tags: tags,
+        context: context,
+        source_location: source_location,
+        occurred_at: occurred_at,
+        created_at: created_at,
+        updated_at: updated_at,
+      }
     end
   end
 end

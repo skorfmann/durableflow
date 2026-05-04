@@ -32,6 +32,60 @@ DurableFlow ships with a small mountable Rails engine for inspecting workflow ru
 
 ![DurableFlow workflow run detail](docs/screenshots/workflow-run-detail.png)
 
+## Live Updates
+
+DurableFlow emits committed lifecycle changes for workflow runs, steps, waits, and events. The default broadcaster is a no-op, so live UI is opt-in.
+
+```ruby
+# config/initializers/durable_flow.rb
+DurableFlow.live_broadcaster = ->(change) do
+  next unless change.run_id
+
+  ActionCable.server.broadcast(
+    "durable_flow:run:#{change.run_id}",
+    change.payload
+  )
+end
+```
+
+Each change includes:
+
+```ruby
+change.type           # "workflow_run.updated", "workflow_step.created", ...
+change.run_id         # nil for standalone workflow_event.created changes
+change.workflow_class
+change.record_class
+change.record_id
+change.record         # Active Record object for in-process renderers
+change.snapshot       # small serializable hash
+change.payload        # snapshot plus type/run metadata
+```
+
+You can also register subscribers:
+
+```ruby
+DurableFlow.on_change do |change|
+  Rails.logger.info("[DurableFlow] #{change.type} #{change.run_id}")
+end
+```
+
+For Turbo Streams, keep authorization in the host app and render whatever partial fits your UI:
+
+```ruby
+DurableFlow.live_broadcaster = ->(change) do
+  next unless change.run_id
+
+  Turbo::StreamsChannel.broadcast_replace_to(
+    "durable_flow:run:#{change.run_id}",
+    target: "workflow_run",
+    partial: "workflow_runs/live_run",
+    locals: { run_id: change.run_id }
+  )
+end
+```
+
+Broadcasts run from `after_commit`, and broadcaster errors are reported but do not fail workflow execution.
+
 ## Status
 
 This is a working prototype targeted at the current vendored Rails `8.2.0.alpha` continuation APIs in `vendor/rails`.
@@ -46,6 +100,7 @@ Verified behavior:
 - Parent workflows waiting for child workflow completion.
 - Solid Queue `1.1.2` integration.
 - Database-backed workflow execution leases to prevent concurrent execution of the same run.
+- Opt-in live lifecycle broadcasts through `DurableFlow.live_broadcaster`.
 
 ## Install
 
@@ -266,7 +321,7 @@ mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-18 runs, 109 assertions, 0 failures, 0 errors, 0 skips
+21 runs, 135 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Copyable App Prompt

@@ -2,6 +2,8 @@
 
 module DurableFlow
   class WorkflowRun < ApplicationRecord
+    include Live::Broadcastable
+
     self.table_name = "durable_flow_workflow_runs"
 
     TERMINAL_STATUSES = %w[completed failed].freeze
@@ -69,6 +71,26 @@ module DurableFlow
 
     def terminal?
       completed? || failed?
+    end
+
+    def live_snapshot
+      {
+        id: id,
+        run_id: run_id,
+        job_id: job_id,
+        workflow_class: workflow_class,
+        status: status,
+        queue_name: queue_name,
+        priority: priority,
+        started_at: started_at,
+        interrupted_at: interrupted_at,
+        completed_at: completed_at,
+        failed_at: failed_at,
+        execution_locked: execution_locked?,
+        execution_lock_expires_at: execution_lock_expires_at,
+        created_at: created_at,
+        updated_at: updated_at,
+      }
     end
   end
 end

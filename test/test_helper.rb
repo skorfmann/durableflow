@@ -27,6 +27,7 @@ class DurableFlowTestCase < ActiveSupport::TestCase
   include ActiveSupport::Testing::TimeHelpers
 
   setup do
+    DurableFlow.reset_live_broadcasters!
     clear_enqueued_jobs
     clear_performed_jobs
     DurableFlow::WorkflowWait.delete_all
@@ -37,6 +38,7 @@ class DurableFlowTestCase < ActiveSupport::TestCase
 
   teardown do
     travel_back
+    DurableFlow.reset_live_broadcasters!
     clear_enqueued_jobs
     clear_performed_jobs
   end

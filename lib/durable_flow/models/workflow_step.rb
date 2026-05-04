@@ -2,6 +2,8 @@
 
 module DurableFlow
   class WorkflowStep < ApplicationRecord
+    include Live::Broadcastable
+
     self.table_name = "durable_flow_workflow_steps"
 
     belongs_to :workflow_run, class_name: "DurableFlow::WorkflowRun"
@@ -24,6 +26,22 @@ module DurableFlow
 
     def metadata_hash
       metadata.presence || {}
+    end
+
+    def live_snapshot
+      {
+        id: id,
+        workflow_run_id: workflow_run_id,
+        name: name,
+        status: status,
+        attempts: attempts,
+        result: result,
+        metadata: metadata,
+        started_at: started_at,
+        completed_at: completed_at,
+        created_at: created_at,
+        updated_at: updated_at,
+      }
     end
   end
 end

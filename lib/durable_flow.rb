@@ -13,6 +13,7 @@ require "durable_flow/version"
 require "durable_flow/errors"
 require "durable_flow/serializer"
 require "durable_flow/schema"
+require "durable_flow/live"
 require "durable_flow/models/application_record"
 require "durable_flow/models/workflow_run"
 require "durable_flow/models/workflow_step"
@@ -26,8 +27,12 @@ require "durable_flow/engine"
 require "durable_flow/railtie"
 
 module DurableFlow
+  NOOP_LIVE_BROADCASTER = ->(_change) {}
+
   mattr_accessor :event_subscriber, default: nil
   mattr_accessor :execution_lock_ttl, default: 10.minutes
+  mattr_accessor :live_broadcaster, default: NOOP_LIVE_BROADCASTER
+  mattr_accessor :live_subscribers, default: []
 
   WORKFLOW_COMPLETED_EVENT = "durable_flow.workflow.completed"
   WORKFLOW_FAILED_EVENT = "durable_flow.workflow.failed"
@@ -65,6 +70,28 @@ module DurableFlow
       end
     end
 
+    def broadcast_change(change)
+      broadcast_live_change(live_broadcaster, change)
+      live_subscribers.each { |subscriber| broadcast_live_change(subscriber, change) }
+      change
+    end
+
+    def on_change(&block)
+      raise ArgumentError, "Provide a block" unless block
+
+      self.live_subscribers += [ block ]
+      block
+    end
+
+    def unsubscribe_from_changes(subscriber)
+      self.live_subscribers -= [ subscriber ]
+    end
+
+    def reset_live_broadcasters!
+      self.live_broadcaster = NOOP_LIVE_BROADCASTER
+      self.live_subscribers = []
+    end
+
     def database_ready?
       return false unless defined?(ActiveRecord::Base)
       return false unless ActiveRecord::Base.connected?
@@ -88,5 +115,14 @@ module DurableFlow
 
       !name.match?(/\.(active_job|active_record|action_controller|action_view|rails)\z/)
     end
+
+    private
+      def broadcast_live_change(callable, change)
+        callable.call(change)
+      rescue StandardError => error
+        if defined?(Rails) && Rails.respond_to?(:error)
+          Rails.error.report(error, handled: true)
+        end
+      end
   end
 end
