@@ -1,40 +1,74 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>DurableFlow Runs</title>
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; color: #17202a; }
-      table { border-collapse: collapse; width: 100%; }
-      th, td { border-bottom: 1px solid #d8dee4; padding: .55rem .7rem; text-align: left; }
-      th { font-size: .8rem; color: #57606a; text-transform: uppercase; }
-      a { color: #0969da; text-decoration: none; }
-      .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    </style>
-  </head>
-  <body>
+<div class="df-header">
+  <div>
+    <div class="df-kicker">DurableFlow</div>
     <h1>Workflow Runs</h1>
-    <table>
-      <thead>
+    <p class="df-muted">Recent executions, waits, sleeps, and terminal states across your Rails workflows.</p>
+  </div>
+  <%= link_to "Refresh", workflow_runs_path, class: "df-button" %>
+</div>
+
+<div class="df-stats">
+  <div class="df-stat">
+    <div class="df-stat-label">Total runs</div>
+    <div class="df-stat-value"><%= @workflow_runs.size %></div>
+  </div>
+  <div class="df-stat">
+    <div class="df-stat-label">Active</div>
+    <div class="df-stat-value"><%= @active_count %></div>
+  </div>
+  <div class="df-stat">
+    <div class="df-stat-label">Completed</div>
+    <div class="df-stat-value"><%= @status_counts.fetch("completed", 0) %></div>
+  </div>
+  <div class="df-stat">
+    <div class="df-stat-label">Failed</div>
+    <div class="df-stat-value"><%= @status_counts.fetch("failed", 0) %></div>
+  </div>
+</div>
+
+<section class="df-panel">
+  <div class="df-panel-header">
+    <div>
+      <div class="df-panel-title">Runs</div>
+      <div class="df-panel-subtitle">Showing latest <%= @workflow_runs.size %> workflow runs</div>
+    </div>
+    <div class="df-filter">Filter by run, workflow, status</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 34%">Run</th>
+        <th style="width: 18%">Status</th>
+        <th class="df-hide-sm" style="width: 15%">Duration</th>
+        <th class="df-hide-sm" style="width: 17%">Started</th>
+        <th style="width: 16%">Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% @workflow_runs.each do |run| %>
+        <% finished_at = run.completed_at || run.failed_at %>
         <tr>
-          <th>Run</th>
-          <th>Workflow</th>
-          <th>Status</th>
-          <th>Started</th>
-          <th>Updated</th>
+          <td>
+            <%= link_to run.workflow_class, workflow_run_path(run.run_id), class: "df-run-link" %>
+            <div class="df-run-id df-mono"><%= run.run_id %></div>
+          </td>
+          <td>
+            <span class="df-status <%= durable_flow_status_class(run.status) %>"><%= run.status %></span>
+          </td>
+          <td class="df-hide-sm"><%= durable_flow_duration(run.started_at || run.created_at, finished_at) %></td>
+          <td class="df-hide-sm"><%= durable_flow_format_time(run.started_at || run.created_at) %></td>
+          <td><%= durable_flow_format_time(run.updated_at) %></td>
         </tr>
-      </thead>
-      <tbody>
-        <% @workflow_runs.each do |run| %>
-          <tr>
-            <td><%= link_to run.run_id, workflow_run_path(run.run_id) %></td>
-            <td><%= run.workflow_class %></td>
-            <td class="status"><%= run.status %></td>
-            <td><%= run.started_at || run.created_at %></td>
-            <td><%= run.updated_at %></td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
-  </body>
-</html>
+      <% end %>
+
+      <% if @workflow_runs.empty? %>
+        <tr>
+          <td colspan="5">
+            <div class="df-empty">No workflow runs yet.</div>
+          </td>
+        </tr>
+      <% end %>
+    </tbody>
+  </table>
+</section>

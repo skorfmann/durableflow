@@ -1,65 +1,144 @@
-<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title><%= @workflow_run.run_id %></title>
-    <style>
-      body { font-family: system-ui, sans-serif; margin: 2rem; color: #17202a; }
-      table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
-      th, td { border-bottom: 1px solid #d8dee4; padding: .55rem .7rem; text-align: left; vertical-align: top; }
-      th { font-size: .8rem; color: #57606a; text-transform: uppercase; }
-      pre { white-space: pre-wrap; font-size: .85rem; margin: 0; }
-      .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    </style>
-  </head>
-  <body>
-    <p><%= link_to "Workflow Runs", workflow_runs_path %></p>
+<div class="df-header">
+  <div>
+    <div class="df-kicker"><%= link_to "Workflow Runs", workflow_runs_path %> / Run</div>
     <h1><%= @workflow_run.workflow_class %></h1>
-    <p><strong>Run:</strong> <%= @workflow_run.run_id %></p>
-    <p><strong>Status:</strong> <span class="status"><%= @workflow_run.status %></span></p>
+    <p class="df-muted df-mono"><%= @workflow_run.run_id %></p>
+  </div>
+  <span class="df-status <%= durable_flow_status_class(@workflow_run.status) %>"><%= @workflow_run.status %></span>
+</div>
 
-    <h2>Steps</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>Status</th>
-          <th>Attempts</th>
-          <th>Result</th>
-        </tr>
-      </thead>
-      <tbody>
-        <% @workflow_steps.each do |step| %>
-          <tr>
-            <td><%= step.name %></td>
-            <td class="status"><%= step.status %></td>
-            <td><%= step.attempts %></td>
-            <td><pre><%= JSON.pretty_generate(step.result) if step.result %></pre></td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
+<div class="df-meta-grid">
+  <div class="df-meta">
+    <div class="df-meta-label">Duration</div>
+    <div class="df-meta-value"><%= durable_flow_duration(@workflow_run.started_at || @workflow_run.created_at, @workflow_run.completed_at || @workflow_run.failed_at) %></div>
+  </div>
+  <div class="df-meta">
+    <div class="df-meta-label">Started</div>
+    <div class="df-meta-value"><%= durable_flow_format_time(@workflow_run.started_at || @workflow_run.created_at) %></div>
+  </div>
+  <div class="df-meta">
+    <div class="df-meta-label">Interrupted</div>
+    <div class="df-meta-value"><%= durable_flow_format_time(@workflow_run.interrupted_at) %></div>
+  </div>
+  <div class="df-meta">
+    <div class="df-meta-label">Updated</div>
+    <div class="df-meta-value"><%= durable_flow_format_time(@workflow_run.updated_at) %></div>
+  </div>
+</div>
 
-    <h2>Waits</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Event</th>
-          <th>Status</th>
-          <th>Timeout</th>
-          <th>Match</th>
-        </tr>
-      </thead>
-      <tbody>
+<div class="df-detail-grid">
+  <section class="df-panel">
+    <div class="df-panel-header">
+      <div>
+        <div class="df-panel-title">Timeline</div>
+        <div class="df-panel-subtitle"><%= pluralize(@workflow_steps.size, "step") %> recorded for this run</div>
+      </div>
+    </div>
+
+    <div class="df-timeline">
+      <% @workflow_steps.each do |step| %>
+        <article class="df-step">
+          <div class="df-step-rail">
+            <span class="df-step-dot <%= durable_flow_status_class(step.status) %>"></span>
+          </div>
+          <div class="df-step-body">
+            <div class="df-step-top">
+              <div>
+                <div class="df-step-name"><%= step.name %></div>
+                <div class="df-step-meta">
+                  Attempt <%= step.attempts %>
+                  · Started <%= durable_flow_format_time(step.started_at) %>
+                  <% if step.completed_at %>
+                    · Completed <%= durable_flow_format_time(step.completed_at) %>
+                  <% end %>
+                </div>
+              </div>
+              <span class="df-status <%= durable_flow_status_class(step.status) %>"><%= step.status %></span>
+            </div>
+
+            <% if step.metadata.present? %>
+              <pre class="df-code"><%= durable_flow_json(step.metadata) %></pre>
+            <% end %>
+
+            <% if step.result.present? %>
+              <pre class="df-code"><%= durable_flow_json(step.result) %></pre>
+            <% end %>
+          </div>
+        </article>
+      <% end %>
+
+      <% if @workflow_steps.empty? %>
+        <div class="df-empty">No steps recorded yet.</div>
+      <% end %>
+    </div>
+  </section>
+
+  <aside class="df-panel">
+    <div class="df-panel-header">
+      <div>
+        <div class="df-panel-title">Run Details</div>
+        <div class="df-panel-subtitle">Queue, arguments, waits, and errors</div>
+      </div>
+    </div>
+
+    <div class="df-side-section">
+      <h3>Metadata</h3>
+      <div class="df-kv">
+        <div class="df-kv-key">Job ID</div>
+        <div class="df-kv-value df-mono"><%= @workflow_run.job_id %></div>
+      </div>
+      <div class="df-kv">
+        <div class="df-kv-key">Queue</div>
+        <div class="df-kv-value"><%= @workflow_run.queue_name.presence || "default" %></div>
+      </div>
+      <div class="df-kv">
+        <div class="df-kv-key">Priority</div>
+        <div class="df-kv-value"><%= @workflow_run.priority || "—" %></div>
+      </div>
+      <div class="df-kv">
+        <div class="df-kv-key">Lock</div>
+        <div class="df-kv-value"><%= @workflow_run.execution_locked? ? "active until #{durable_flow_format_time(@workflow_run.execution_lock_expires_at)}" : "not locked" %></div>
+      </div>
+    </div>
+
+    <% if @workflow_waits.any? %>
+      <div class="df-side-section">
+        <h3>Waits</h3>
         <% @workflow_waits.each do |wait| %>
-          <tr>
-            <td><%= wait.event_name %></td>
-            <td class="status"><%= wait.status %></td>
-            <td><%= wait.timeout_at %></td>
-            <td><pre><%= JSON.pretty_generate(wait.match) if wait.match %></pre></td>
-          </tr>
+          <div class="df-kv">
+            <div class="df-kv-key">Event</div>
+            <div class="df-kv-value"><%= wait.event_name %></div>
+          </div>
+          <div class="df-kv">
+            <div class="df-kv-key">Status</div>
+            <div class="df-kv-value">
+              <span class="df-status <%= durable_flow_status_class(wait.status) %>"><%= wait.status %></span>
+            </div>
+          </div>
+          <div class="df-kv">
+            <div class="df-kv-key">Timeout</div>
+            <div class="df-kv-value"><%= durable_flow_format_time(wait.timeout_at) %></div>
+          </div>
+          <pre class="df-code"><%= durable_flow_json(wait.match) %></pre>
+          <% if wait.workflow_event %>
+            <pre class="df-code"><%= durable_flow_json(wait.workflow_event.payload) %></pre>
+          <% end %>
         <% end %>
-      </tbody>
-    </table>
-  </body>
-</html>
+      </div>
+    <% end %>
+
+    <% if @workflow_run.arguments.present? %>
+      <div class="df-side-section">
+        <h3>Arguments</h3>
+        <pre class="df-code"><%= durable_flow_json(@workflow_run.arguments) %></pre>
+      </div>
+    <% end %>
+
+    <% if @workflow_run.last_error.present? %>
+      <div class="df-side-section">
+        <h3>Error</h3>
+        <pre class="df-code"><%= durable_flow_json(@workflow_run.last_error) %></pre>
+      </div>
+    <% end %>
+  </aside>
+</div>
