@@ -74,6 +74,10 @@ module DurableFlow
       completed? || failed?
     end
 
+    def timeline
+      WorkflowTimeline.new(self)
+    end
+
     def live_snapshot
       {
         id: id,

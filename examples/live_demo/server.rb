@@ -240,15 +240,13 @@ def render_step_logs(logs)
   HTML
 end
 
-def render_steps(steps, logs)
-  return '<div class="empty">No steps yet. Start a run.</div>' if steps.empty?
+def render_steps(step_entries)
+  return '<div class="empty">No steps yet. Start a run.</div>' if step_entries.empty?
 
-  logs_by_step_id = logs.select(&:workflow_step_id).group_by(&:workflow_step_id)
-
-  steps.map do |step|
+  step_entries.map do |entry|
+    step = entry.step
     payload = safe_value { step.result_value } || step.metadata_hash.presence
     cls = status_class(step.status)
-    step_logs = logs_by_step_id.fetch(step.id, [])
 
     <<~HTML
       <article class="step">
@@ -262,7 +260,7 @@ def render_steps(steps, logs)
             <span class="status #{cls}">#{ERB::Util.html_escape(step.status)}</span>
           </div>
           #{render_json_block(normalize_json(payload))}
-          #{render_step_logs(step_logs)}
+          #{render_step_logs(entry.logs)}
         </div>
       </article>
     HTML
@@ -271,9 +269,10 @@ end
 
 def render_live_page
   run = current_run
-  steps = run ? run.workflow_steps.order(:created_at, :id).to_a : []
-  waits = run ? run.workflow_waits.order(:created_at, :id).to_a : []
-  logs = run ? run.workflow_logs.includes(:workflow_step).ordered.to_a : []
+  timeline = run&.timeline
+  step_entries = timeline&.step_entries || []
+  waits = timeline&.waits || []
+  logs = timeline&.logs || []
 
   <<~HTML
     <!doctype html>
@@ -385,7 +384,7 @@ def render_live_page
                   <span id="run-status" class="status #{run ? status_class(run.status) : "active"}">#{run&.status || "idle"}</span>
                 </div>
                 <div class="timeline" id="timeline">
-                  #{render_steps(steps, logs)}
+                  #{render_steps(step_entries)}
                 </div>
               </section>
 
@@ -417,7 +416,7 @@ def render_live_page
           const steps = new Map();
           const workflowLogs = new Map();
 
-          #{steps.map { |step| "steps.set(#{step.id.to_json}, #{step_to_json(step).to_json});" }.join("\n")}
+          #{step_entries.map { |entry| "steps.set(#{entry.id.to_json}, #{step_to_json(entry.step).to_json});" }.join("\n")}
           #{logs.map { |log| "workflowLogs.set(#{log.id.to_json}, #{log_to_json(log).to_json});" }.join("\n")}
 
           renderTimeline();

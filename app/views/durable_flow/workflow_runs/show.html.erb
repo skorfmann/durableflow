@@ -31,13 +31,13 @@
     <div class="df-panel-header">
       <div>
         <div class="df-panel-title">Timeline</div>
-        <div class="df-panel-subtitle"><%= pluralize(@workflow_steps.size, "step") %> recorded for this run</div>
+        <div class="df-panel-subtitle"><%= pluralize(@workflow_timeline.step_entries.size, "step") %> recorded for this run</div>
       </div>
     </div>
 
     <div class="df-timeline">
-      <% @workflow_steps.each do |step| %>
-        <% step_logs = @workflow_logs_by_step_id.fetch(step.id, []) %>
+      <% @workflow_timeline.step_entries.each do |entry| %>
+        <% step = entry.step %>
         <article class="df-step">
           <div class="df-step-rail">
             <span class="df-step-dot <%= durable_flow_status_class(step.status) %>"></span>
@@ -65,10 +65,10 @@
               <pre class="df-code"><%= durable_flow_json(step.result) %></pre>
             <% end %>
 
-            <% if step_logs.any? %>
+            <% if entry.logs.any? %>
               <div class="df-step-logs">
                 <div class="df-step-logs-label">Logs</div>
-                <% step_logs.each do |log| %>
+                <% entry.logs.each do |log| %>
                   <div class="df-step-log">
                     <div class="df-step-log-top">
                       <span class="df-status <%= durable_flow_status_class(log.level) %>"><%= log.level %></span>
@@ -85,7 +85,7 @@
         </article>
       <% end %>
 
-      <% if @workflow_steps.empty? %>
+      <% if @workflow_timeline.step_entries.empty? %>
         <div class="df-empty">No steps recorded yet.</div>
       <% end %>
     </div>
@@ -119,10 +119,10 @@
       </div>
     </div>
 
-    <% if @workflow_waits.any? %>
+    <% if @workflow_timeline.waits.any? %>
       <div class="df-side-section">
         <h3>Waits</h3>
-        <% @workflow_waits.each do |wait| %>
+        <% @workflow_timeline.waits.each do |wait| %>
           <div class="df-kv">
             <div class="df-kv-key">Event</div>
             <div class="df-kv-value"><%= wait.event_name %></div>
@@ -145,10 +145,10 @@
       </div>
     <% end %>
 
-    <% if @run_workflow_logs.any? %>
+    <% if @workflow_timeline.run_logs.any? %>
       <div class="df-side-section">
         <h3>Run Logs</h3>
-        <% @run_workflow_logs.each do |log| %>
+        <% @workflow_timeline.run_logs.each do |log| %>
           <div class="df-kv">
             <div class="df-kv-key"><%= durable_flow_format_time(log.created_at) %></div>
             <div class="df-kv-value">

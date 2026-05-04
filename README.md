@@ -86,6 +86,25 @@ end
 
 Broadcasts run from `after_commit`, and broadcaster errors are reported but do not fail workflow execution.
 
+## Timeline Data
+
+Use `WorkflowRun#timeline` when building a custom UI. It preloads and groups the run's steps, waits, matched events, and logs so applications do not need to recreate the join logic.
+
+```ruby
+run = DurableFlow::WorkflowRun.find_by!(run_id: params[:run_id])
+timeline = run.timeline
+
+timeline.step_entries.each do |entry|
+  entry.step    # DurableFlow::WorkflowStep
+  entry.logs    # logs written inside this step
+  entry.waits   # waits created by this step
+  entry.events  # events that matched those waits
+end
+
+timeline.run_logs # logs written outside a step
+timeline.items    # flat chronological items: :step, :wait, :event, :log
+```
+
 ## Demo App
 
 The repo includes a small live Rails demo app at `examples/live_demo`.
@@ -344,7 +363,7 @@ mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-22 runs, 156 assertions, 0 failures, 0 errors, 0 skips
+23 runs, 181 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Copyable App Prompt

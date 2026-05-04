@@ -17,11 +17,7 @@ module DurableFlow
 
     def show
       @workflow_run = WorkflowRun.find_by!(run_id: params[:run_id])
-      @workflow_steps = @workflow_run.workflow_steps.order(:created_at)
-      @workflow_waits = @workflow_run.workflow_waits.includes(:workflow_event).order(:created_at)
-      @workflow_logs = @workflow_run.workflow_logs.includes(:workflow_step).ordered.to_a
-      @workflow_logs_by_step_id = @workflow_logs.select(&:workflow_step_id).group_by(&:workflow_step_id)
-      @run_workflow_logs = @workflow_logs.reject(&:workflow_step_id)
+      @workflow_timeline = @workflow_run.timeline
     end
 
     private
