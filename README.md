@@ -305,6 +305,58 @@ Important constraints:
 - If a single step can run longer than DurableFlow.execution_lock_ttl without checkpointing, increase the TTL or split the work into checkpointed chunks.
 ```
 
+## Copyable Human-in-the-Loop Prompt
+
+DurableFlow does not ship a generic human task system. For most apps, the right implementation depends on your existing users, permissions, admin UI, notifications, and domain models.
+
+Paste this into a coding agent inside your Rails app when a workflow needs a human decision:
+
+```text
+Add a human-in-the-loop step to this DurableFlow workflow.
+
+Use app-native Rails models and UI. Do not add a generic DurableFlow task framework.
+
+Workflow:
+[Name or paste the workflow here.]
+
+Human decision needed:
+[Describe the decision, for example "finance approves or rejects a refund".]
+
+Build this using DurableFlow's existing event wait primitive:
+1. Add an app model for the pending decision if one does not already exist. Keep it domain-specific, for example RefundApproval, AccountReview, DeploymentApproval, or KycReview.
+2. In the workflow, create that record inside a named step.
+3. Pause the workflow with step.wait_for_event, matching on that decision record's id or public token.
+4. Add the app UI/controller action that lets an authorized human submit the decision.
+5. In that controller action, persist the decision and emit Rails.event.notify with the event name and matching id/token.
+6. Resume the workflow and branch on the event payload.
+7. Add tests for approve, reject, and timeout paths.
+
+Example shape:
+
+approval = step(:create_refund_approval) { RefundApproval.create!(refund: refund, status: "pending") }
+
+decision = step.wait_for_event(
+  :refund_approval_decided,
+  timeout: 2.days,
+  match: { refund_approval_id: approval.id }
+)
+
+Controller completion should emit:
+
+Rails.event.notify(
+  :refund_approval_decided,
+  refund_approval_id: approval.id,
+  decision: "approved",
+  decided_by_id: Current.user.id
+)
+
+Constraints:
+- Use the app's existing authentication and authorization.
+- Use a public token instead of a sequential database id for public links or external callbacks.
+- Keep the decision record domain-specific and easy to query from the app's admin UI.
+- Put workflow side effects inside named step blocks.
+```
+
 ## What It Is Not
 
 DurableFlow is not trying to replace Temporal or Inngest Cloud. It is an in-app Rails workflow runtime for teams that want durable, observable, multi-step business logic while staying inside Rails, Active Job, and their database.
