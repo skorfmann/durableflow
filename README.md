@@ -24,6 +24,14 @@ end
 
 The goal is durable, observable workflows without a separate workflow server, Redis dependency, or external control plane.
 
+## UI
+
+DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, step timelines, waits, arguments, and errors.
+
+![DurableFlow workflow runs index](docs/screenshots/workflow-runs.png)
+
+![DurableFlow workflow run detail](docs/screenshots/workflow-run-detail.png)
+
 ## Status
 
 This is a working prototype targeted at the current vendored Rails `8.2.0.alpha` continuation APIs in `vendor/rails`.
