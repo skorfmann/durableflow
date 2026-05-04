@@ -104,9 +104,13 @@ def current_run
 end
 
 def start_demo_run!
-  clear_demo_data!
   clear_test_jobs!
   LiveReviewWorkflow.perform_now("review-#{SecureRandom.hex(3)}")
+end
+
+def reset_demo!
+  clear_demo_data!
+  clear_test_jobs!
 end
 
 def complete_demo_run!(decision)
@@ -370,6 +374,7 @@ def render_live_page
                 <button class="primary" data-post="/start">Start run</button>
                 <button data-post="/approve">Approve</button>
                 <button data-post="/reject">Reject</button>
+                <button data-post="/reset">Reset demo</button>
                 <a class="button" href="/durable_flow">Open engine UI</a>
               </div>
             </div>
@@ -425,10 +430,17 @@ def render_live_page
             button.addEventListener("click", async () => {
               button.disabled = true;
               try {
-                if (button.dataset.post === "/start") {
+                if (button.dataset.post === "/start" || button.dataset.post === "/reset") {
                   steps.clear();
                   workflowLogs.clear();
                   liveLog.innerHTML = "";
+                  runId.textContent = "-";
+                  waits.textContent = "-";
+                  runSubtitle.textContent = button.dataset.post === "/reset" ? "No run yet" : runSubtitle.textContent;
+                  if (button.dataset.post === "/reset") {
+                    runStatus.textContent = "idle";
+                    runStatus.className = "status active";
+                  }
                   renderTimeline();
                 }
                 await fetch(button.dataset.post, { method: "POST" });
@@ -619,6 +631,9 @@ loop do
         no_content_response(client)
       when [ "POST", "/reject" ]
         complete_demo_run!("rejected")
+        no_content_response(client)
+      when [ "POST", "/reset" ]
+        reset_demo!
         no_content_response(client)
       else
         handle_rails_app(client, method, full_path)
