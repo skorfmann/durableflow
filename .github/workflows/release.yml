@@ -1,0 +1,66 @@
+name: Release gem
+run-name: Release durable_flow ${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Gem version to publish, for example 0.1.1"
+        required: true
+        type: string
+
+concurrency:
+  group: rubygems-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish durable_flow
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: release
+
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      GEM_VERSION: ${{ inputs.version }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+
+      - name: Set release version
+        run: |
+          ruby -e '
+            version = ENV.fetch("GEM_VERSION")
+            abort "Version must use x.y.z format, for example 0.1.1" unless version.match?(/\A\d+\.\d+\.\d+\z/)
+
+            path = "lib/durable_flow/version.rb"
+            source = File.read(path)
+            updated = source.sub(/VERSION = ".*"/, %(VERSION = "#{version}"))
+            abort "Could not update #{path}" if source == updated
+            File.write(path, updated)
+          '
+
+          ruby -Ilib -rdurable_flow/version -e 'puts "Publishing durable_flow #{DurableFlow::VERSION}"'
+
+      - name: Test
+        run: bundle exec rake test
+
+      - name: Build gem
+        run: gem build durable_flow.gemspec
+
+      - name: Configure RubyGems credentials
+        uses: rubygems/configure-rubygems-credentials@v2.0.0
+
+      - name: Push gem
+        run: gem push "durable_flow-${GEM_VERSION}.gem"
