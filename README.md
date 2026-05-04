@@ -86,6 +86,16 @@ end
 
 Broadcasts run from `after_commit`, and broadcaster errors are reported but do not fail workflow execution.
 
+## Demo App
+
+The repo includes a small live Rails demo app at `examples/live_demo`.
+
+```sh
+mise exec ruby@3.4 -- bundle exec ruby examples/live_demo/server.rb
+```
+
+Open `http://127.0.0.1:4568/live`, start a review workflow, then approve or reject it. The page updates from `DurableFlow.live_broadcaster` using Server-Sent Events and links to the mounted engine UI at `/durable_flow`.
+
 ## Status
 
 This is a working prototype targeted at the current vendored Rails `8.2.0.alpha` continuation APIs in `vendor/rails`.
