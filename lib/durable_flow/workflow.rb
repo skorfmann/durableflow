@@ -25,7 +25,7 @@ module DurableFlow
       durable_step(name) do
         step_record = current_workflow_step
         metadata = step_record.metadata_hash
-        wake_at = parse_time(metadata["wake_at"]) || time_from(duration, explicit_time: until_time)
+        wake_at = durable_flow_parse_time(metadata["wake_at"]) || durable_flow_time_from(duration, explicit_time: until_time)
 
         raise ArgumentError, "Provide a duration or until: time for sleep step #{name.inspect}" unless wake_at
 
@@ -39,12 +39,12 @@ module DurableFlow
       end
     end
 
-    def wait_for_event_step(name, event_name:, timeout:, match:)
+    def wait_for_event_step(name, event_name:, timeout:, match:, allow_past_events: false)
       durable_step(name) do
         step_record = current_workflow_step
         wait = find_or_initialize_wait(step_record, event_name: event_name, timeout: timeout, match: match)
 
-        if (event = matched_event_for(wait))
+        if (event = matched_event_for(wait, allow_past_events: allow_past_events))
           wait.update!(status: "matched", workflow_event: event)
           event.payload_value
         elsif wait.timeout_at && Time.current >= wait.timeout_at
@@ -71,6 +71,32 @@ module DurableFlow
 
     def wait_for_workflow(name, workflow_or_run_id, timeout: nil)
       StepProxy.new(self).wait_for_workflow(name, workflow_or_run_id, timeout: timeout)
+    end
+
+    def child_workflow(name, workflow_class = nil, *args, timeout: nil, **kwargs, &block)
+      base_name = name.to_s
+      run_id = durable_step("#{base_name}_start") do
+        child = if block
+          block.arity.zero? ? block.call : block.call(workflow_class)
+        else
+          raise ArgumentError, "Provide a workflow class or block for child workflow #{name.inspect}" unless workflow_class
+
+          workflow_class.perform_later(*args, **kwargs)
+        end
+
+        extract_child_workflow_run_id(child)
+      end
+
+      wait_for_workflow("#{base_name}_wait", run_id, timeout: timeout)
+    end
+
+    def each_child_workflow(name, collection, key:, timeout: nil, &block)
+      raise ArgumentError, "Provide a block that starts each child workflow" unless block
+
+      collection.map do |item|
+        item_key = child_workflow_item_key(item, key)
+        child_workflow("#{name}_#{item_key}", timeout: timeout) { block.call(item) }
+      end
     end
 
     def log
@@ -219,20 +245,23 @@ module DurableFlow
             event_name: event_name.to_s,
             status: "pending",
             match: Serializer.dump(match || {}),
-            timeout_at: (time_from(timeout) if timeout),
+            timeout_at: (durable_flow_time_from(timeout) if timeout),
           )).tap do |wait|
           updates = {}
           updates[:event_name] = event_name.to_s if wait.event_name != event_name.to_s
           updates[:match] = Serializer.dump(match || {}) if wait.match.blank?
-          updates[:timeout_at] = time_from(timeout) if timeout && wait.timeout_at.blank?
+          updates[:timeout_at] = durable_flow_time_from(timeout) if timeout && wait.timeout_at.blank?
           wait.update!(updates) if updates.any?
         end
       end
 
-      def matched_event_for(wait)
+      def matched_event_for(wait, allow_past_events: false)
         return wait.workflow_event if wait.workflow_event
 
-        WorkflowEvent.named(wait.event_name).where("created_at >= ?", wait.created_at).order(:created_at).detect do |event|
+        scope = WorkflowEvent.named(wait.event_name)
+        scope = scope.where("created_at >= ?", wait.created_at) unless allow_past_events
+
+        scope.order(:created_at).detect do |event|
           wait.matches_event?(event)
         end
       end
@@ -343,7 +372,27 @@ module DurableFlow
         })
       end
 
-      def time_from(value, explicit_time: nil)
+      def extract_child_workflow_run_id(child)
+        run_id = child.respond_to?(:job_id) ? child.job_id : child.to_s
+
+        raise ArgumentError, "Child workflow start must return a job, run id, or object responding to job_id" if run_id.blank?
+
+        run_id
+      end
+
+      def child_workflow_item_key(item, key)
+        value = if key.respond_to?(:call)
+          key.call(item)
+        elsif item.respond_to?(:fetch)
+          item.fetch(key) { item.fetch(key.to_s) }
+        else
+          item.public_send(key)
+        end
+
+        value.to_s
+      end
+
+      def durable_flow_time_from(value, explicit_time: nil)
         return explicit_time.to_time if explicit_time.respond_to?(:to_time)
         return nil if value.nil?
         return value.to_time if value.respond_to?(:to_time)
@@ -351,7 +400,7 @@ module DurableFlow
         Time.current + value
       end
 
-      def parse_time(value)
+      def durable_flow_parse_time(value)
         return if value.blank?
         return value if value.is_a?(Time)
 

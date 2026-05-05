@@ -310,8 +310,15 @@ event = step.wait_for_event(:wait_for_charge, event: :stripe_charge_succeeded, m
 Wait for a child workflow:
 
 ```ruby
-child_run_id = step(:start_child) { SendInvoiceWorkflow.perform_later(invoice.id).job_id }
-completion = step.wait_for_workflow(:child_finished, child_run_id, timeout: 1.hour)
+completion = step.child_workflow(:send_invoice, SendInvoiceWorkflow, invoice.id, timeout: 1.hour)
+```
+
+If child startup needs custom code, return the enqueued job or run id from a block:
+
+```ruby
+completion = step.child_workflow(:send_invoice, timeout: 1.hour) do
+  SendInvoiceWorkflow.perform_later(invoice.id, source: "renewal")
+end
 ```
 
 Write structured workflow logs:
@@ -349,12 +356,8 @@ end
 Parallel or high-cardinality work: fan out to child workflows.
 
 ```ruby
-child_run_ids = step(:start_children) do
-  account.users.find_each.map { |user| SyncUserWorkflow.perform_later(user.id).job_id }
-end
-
-child_run_ids.each do |run_id|
-  step.wait_for_workflow("child-#{run_id}", run_id, timeout: 30.minutes)
+step.each_child_workflow(:sync_user, account.users.to_a, key: :id, timeout: 30.minutes) do |user|
+  SyncUserWorkflow.perform_later(user.id)
 end
 ```
 
@@ -428,7 +431,7 @@ class TrialOnboardingWorkflowTest < ActiveSupport::TestCase
 end
 ```
 
-Useful helpers include `perform_durable_flow_jobs`, `resume_workflows_for`, `travel_to_next_workflow_wake`, `durable_flow_run_for`, `durable_flow_timeline_for`, `assert_workflow_completed`, `assert_workflow_sleeping`, `assert_workflow_waiting_for`, `assert_step_succeeded`, `assert_step_result`, `assert_step_attempts`, `assert_workflow_log`, `assert_step_log`, `capture_durable_flow_changes`, and `assert_durable_flow_change`.
+Useful helpers include `perform_durable_flow_jobs`, `perform_durable_flow_until_idle`, `resume_workflows_for`, `travel_to_next_workflow_wake`, `durable_flow_run_for`, `durable_flow_timeline_for`, `assert_workflow_completed`, `assert_workflow_sleeping`, `assert_workflow_waiting_for`, `assert_workflow_waiting_for_workflow`, `assert_step_succeeded`, `assert_step_result`, `assert_step_attempts`, `assert_workflow_log`, `assert_step_log`, `capture_durable_flow_changes`, and `assert_durable_flow_change`.
 
 Run the suite against the vendored Rails copy:
 

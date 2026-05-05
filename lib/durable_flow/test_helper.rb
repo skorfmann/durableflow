@@ -51,6 +51,26 @@ module DurableFlow
       perform_enqueued_jobs(**options, &block)
     end
 
+    def perform_durable_flow_until_idle(at: Time.current, limit: 100, **options)
+      raise "Include ActiveJob::TestHelper to perform DurableFlow jobs" unless respond_to?(:perform_enqueued_jobs)
+
+      performed = 0
+
+      limit.times do
+        break unless durable_flow_performable_job_enqueued?(at: at)
+
+        before = respond_to?(:performed_jobs) ? performed_jobs.size : 0
+        perform_durable_flow_jobs(**options.merge(at: at))
+        performed += performed_jobs.size - before if respond_to?(:performed_jobs)
+      end
+
+      if durable_flow_performable_job_enqueued?(at: at)
+        raise "DurableFlow jobs did not become idle after #{limit} drain attempts"
+      end
+
+      performed
+    end
+
     def notify_workflow_event(name, **payload)
       payload.empty? ? DurableFlow.notify(name) : DurableFlow.notify(name, payload)
     end
@@ -90,6 +110,17 @@ module DurableFlow
 
       assert_equal "pending", wait.status
       assert_equal match, wait.match_value if match
+      wait
+    end
+
+    def assert_workflow_waiting_for_workflow(workflow_or_run, run_id, step: nil)
+      wait = assert_workflow_waiting_for(
+        workflow_or_run,
+        DurableFlow::WORKFLOW_COMPLETED_EVENT,
+        match: { run_id: run_id.to_s },
+      )
+
+      assert_equal step.to_s, wait.workflow_step.name if step
       wait
     end
 
@@ -208,6 +239,15 @@ module DurableFlow
         return value if value.is_a?(Time)
 
         Time.iso8601(value.to_s)
+      end
+
+      def durable_flow_performable_job_enqueued?(at:)
+        return false unless respond_to?(:enqueued_jobs)
+
+        enqueued_jobs.any? do |payload|
+          scheduled_at = payload[:at] || payload["at"]
+          scheduled_at.blank? || scheduled_at.to_f <= at.to_f
+        end
       end
 
       def workflow_class_name(workflow_class)

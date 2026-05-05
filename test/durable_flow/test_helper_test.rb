@@ -26,11 +26,17 @@ class DurableFlowTestHelperTest < DurableFlowTestCase
     end
   end
 
+  class ChildWaitWorkflow < DurableFlow::Workflow
+    def perform(run_id)
+      step.wait_for_workflow(:child_done, run_id, timeout: 1.hour)
+    end
+  end
+
   test "helpers assert workflow status steps waits logs sleeps and live changes" do
     freeze_time do
       changes = capture_durable_flow_changes do
         HelperWorkflow.perform_later("helper-1")
-        perform_durable_flow_jobs(at: Time.current)
+        perform_durable_flow_until_idle(at: Time.current)
       end
 
       run = durable_flow_run_for(HelperWorkflow)
@@ -43,7 +49,7 @@ class DurableFlowTestHelperTest < DurableFlowTestCase
       assert_durable_flow_change changes, "workflow_log.created", message: "Workflow started"
 
       travel_to_next_workflow_wake run
-      perform_durable_flow_jobs(at: Time.current)
+      perform_durable_flow_until_idle(at: Time.current)
 
       assert_workflow_waiting_for run, :approved, match: { token: "helper-1" }
 
@@ -70,5 +76,16 @@ class DurableFlowTestHelperTest < DurableFlowTestCase
     assert_empty DurableFlow::WorkflowWait.all
     assert_empty DurableFlow::WorkflowEvent.all
     assert_empty DurableFlow::WorkflowLog.all
+  end
+
+  test "workflow wait helper can assert child workflow waits" do
+    freeze_time do
+      ChildWaitWorkflow.perform_later("child-run-1")
+      perform_durable_flow_until_idle(at: Time.current)
+
+      run = durable_flow_run_for(ChildWaitWorkflow)
+      wait = assert_workflow_waiting_for_workflow(run, "child-run-1", step: :child_done)
+      assert_equal DurableFlow::WORKFLOW_COMPLETED_EVENT, wait.event_name
+    end
   end
 end
