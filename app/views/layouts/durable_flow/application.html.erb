@@ -125,6 +125,14 @@
         margin-bottom: 22px;
       }
 
+      .df-header-actions {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
       .df-kicker {
         color: var(--muted);
         font-size: 12px;
@@ -237,6 +245,7 @@
 
       .df-run-link { font-weight: 700; color: #1d4f91; }
       .df-run-id { margin-top: 4px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .df-run-actions { display: flex; gap: 10px; margin-top: 7px; font-size: 12px; font-weight: 700; color: #1d4f91; }
 
       .df-status {
         display: inline-flex;
@@ -266,6 +275,13 @@
       .df-detail-grid {
         display: grid;
         grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.65fr);
+        gap: 16px;
+        align-items: start;
+      }
+
+      .df-definition-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(340px, 0.38fr);
         gap: 16px;
         align-items: start;
       }
@@ -419,12 +435,83 @@
         text-align: center;
       }
 
+      .df-dag-wrap {
+        padding: 12px;
+        overflow: auto;
+      }
+
+      .df-dag-svg {
+        display: block;
+        width: 100%;
+        min-width: 760px;
+        height: auto;
+      }
+
+      .df-dag-edge {
+        fill: none;
+        stroke: var(--subtle);
+        stroke-width: 2;
+      }
+
+      .df-dag-edge-label {
+        fill: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        paint-order: stroke;
+        stroke: #fff;
+        stroke-width: 4px;
+        stroke-linejoin: round;
+      }
+
+      .df-dag-card {
+        fill: #fbfcfd;
+        stroke: var(--line-strong);
+        stroke-width: 1.5;
+        filter: drop-shadow(0 6px 10px rgba(18, 20, 23, 0.08));
+      }
+
+      .df-dag-card.success { fill: var(--green-soft); stroke: var(--green); }
+      .df-dag-card.active { fill: var(--blue-soft); stroke: var(--blue); }
+      .df-dag-card.waiting { fill: var(--amber-soft); stroke: var(--amber); }
+      .df-dag-card.danger { fill: var(--red-soft); stroke: var(--red); }
+      .df-dag-card.neutral { fill: #fbfcfd; stroke: var(--line-strong); }
+
+      .df-dag-node-name {
+        fill: var(--ink);
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .df-dag-node-meta,
+      .df-dag-status-label {
+        fill: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .df-warning {
+        color: var(--amber);
+        background: var(--amber-soft);
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-top: 8px;
+        line-height: 1.45;
+      }
+
+      .df-definition-json {
+        margin: 0;
+        border: 0;
+        border-radius: 0;
+        max-height: 520px;
+      }
+
       @media (max-width: 900px) {
         .df-shell { grid-template-columns: 1fr; }
         .df-sidebar { display: none; }
         .df-page { padding: 22px 16px 32px; }
         .df-header { flex-direction: column; }
-        .df-stats, .df-meta-grid, .df-detail-grid { grid-template-columns: 1fr; }
+        .df-header-actions { justify-content: flex-start; }
+        .df-stats, .df-meta-grid, .df-detail-grid, .df-definition-grid { grid-template-columns: 1fr; }
         .df-filter { min-width: 100%; }
         th, td { padding: 11px 12px; }
         .df-hide-sm { display: none; }

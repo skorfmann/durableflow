@@ -1,0 +1,34 @@
+# DurableFlow
+
+> DurableFlow is an Inngest-style workflow runtime for Rails, built on Active Job continuations, Active Record, Solid Queue, and Rails.event.
+
+Use DurableFlow to write durable, observable, replay-safe Rails workflows with named memoized steps, sleeps, event waits, child workflows, fanout, structured logs, test helpers, definition DAGs, and a mountable UI.
+
+## Primary LLM Context
+
+- [LLM reference](docs/llm-reference.md): full public API surface, workflow generation rules, lifecycle behavior, and scenario examples.
+- [README](README.md): human-oriented overview, installation, basic usage, screenshots, and release notes.
+
+## Source Map
+
+- Runtime: `lib/durable_flow/workflow.rb`, `lib/durable_flow/step_proxy.rb`
+- Child workflow requests: `lib/durable_flow/child_workflow_builder.rb`
+- Events and dispatch: `lib/durable_flow.rb`, `lib/durable_flow/event_subscriber.rb`, `lib/durable_flow/dispatcher.rb`
+- Models: `lib/durable_flow/models/*.rb`
+- Timeline/live UI data: `lib/durable_flow/workflow_timeline.rb`, `lib/durable_flow/live.rb`
+- Definition DAG analysis: `lib/durable_flow/definition_analyzer.rb`, `lib/durable_flow/definition_graph.rb`
+- Test helpers: `lib/durable_flow/test_helper.rb`
+- Install schema: `lib/durable_flow/schema.rb`, `lib/generators/durable_flow/templates/create_durable_flow_tables.rb`
+
+## Generation Priorities
+
+- Put side effects inside named durable steps.
+- Keep replayed code deterministic and cheap.
+- Use stable step names.
+- Return only Active Job serializable values.
+- Use `step.sleep` for durable delays.
+- Use `step.wait_for_event` plus `Rails.event.notify` for callbacks and user actions.
+- Use `step.invoke` and `step.invoke_each` for child workflows.
+- Choose `on_failure: :raise` or `on_failure: :return` explicitly when child failure semantics matter.
+- Add tests for replay, sleeps, event waits, timeouts, retries, and child workflow failure behavior.
+

@@ -72,9 +72,7 @@ module DurableFlowExamples
 
   class ParentWorkflow < DurableFlow::Workflow
     def perform(value)
-      child_run_id = step(:start_child) { ChildWorkflow.perform_later(value).job_id }
-
-      completion = step.wait_for_workflow(:child_completed, child_run_id, timeout: 1.hour)
+      completion = step.child_workflow(:child, ChildWorkflow, value, timeout: 1.hour)
 
       step(:finish) do
         State.events << [ :parent_finished, completion[:run_id] ]

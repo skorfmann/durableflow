@@ -7,17 +7,17 @@ It lets you write long-running business workflows as normal Ruby methods. Side e
 ```ruby
 class WelcomeWorkflow < DurableFlow::Workflow
   def perform(user_id:, trial_id:)
-    user = step(:load_user) { User.find(user_id) }
+    user = step.run(:load_user) { User.find(user_id) }
 
-    step(:send_welcome) { UserMailer.welcome(user).deliver_now }
+    step.run(:send_welcome) { UserMailer.welcome(user).deliver_now }
 
     step.sleep(:trial_delay, 1.day)
 
-    trial = step(:start_trial) { Billing.start_trial!(user, trial_id:) }
+    trial = step.run(:start_trial) { Billing.start_trial!(user, trial_id:) }
 
     event = step.wait_for_event(:trial_confirmed, timeout: 7.days, match: { trial_id: trial.id })
 
-    step(:finalize) { user.update!(onboarded_at: Time.current, confirmed_at: event[:confirmed_at]) }
+    step.run(:finalize) { user.update!(onboarded_at: Time.current, confirmed_at: event[:confirmed_at]) }
   end
 end
 ```
@@ -30,11 +30,15 @@ DurableFlow is alpha software. The API and storage model will likely change as t
 
 ## UI
 
-DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, step timelines, waits, workflow logs, arguments, and errors.
+DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, definition DAGs, step timelines, waits, workflow logs, arguments, and errors.
 
 ![DurableFlow workflow runs index](docs/screenshots/workflow-runs.png)
 
 ![DurableFlow workflow run detail](docs/screenshots/workflow-run-detail.png)
+
+Each run detail links to a definition DAG view that statically analyzes the workflow class and overlays runtime status from that run.
+
+![DurableFlow workflow definition DAG](docs/screenshots/workflow-definition-dag.png)
 
 ## Live Updates
 
@@ -147,6 +151,8 @@ Verified behavior:
 - Durable sleep through `perform_later(wait_until:)`.
 - Event waits through `Rails.event`.
 - Parent workflows waiting for child workflow completion.
+- Parent workflows choosing whether child failures raise or return completion payloads.
+- Active Job retry/discard handling reflected in workflow and step status.
 - Solid Queue `1.1.2` integration.
 - Database-backed workflow execution leases to prevent concurrent execution of the same run.
 - Opt-in live lifecycle broadcasts through `DurableFlow.live_broadcaster`.
@@ -280,12 +286,14 @@ Wake it with a Rails event:
 Rails.event.notify(:trial_activated, trial_id: trial.id, source: "checkout")
 ```
 
+For a dense API reference optimized for coding agents, see [docs/llm-reference.md](docs/llm-reference.md).
+
 ## Step API
 
 Memoized side-effect step:
 
 ```ruby
-order = step(:create_order) { Order.create!(cart:) }
+order = step.run(:create_order) { Order.create!(cart:) }
 ```
 
 Durable sleep:
@@ -293,6 +301,7 @@ Durable sleep:
 ```ruby
 step.sleep(:retry_tomorrow, 1.day)
 step.sleep(:wait_until_send_at, until: campaign.send_at)
+step.sleep_until(:wait_until_send_at, campaign.send_at)
 ```
 
 Wait for a Rails event:
@@ -307,17 +316,72 @@ Use a different event name than the step name:
 event = step.wait_for_event(:wait_for_charge, event: :stripe_charge_succeeded, match: { charge_id: charge.id })
 ```
 
-Wait for a child workflow:
+Invoke a child workflow and wait for its result:
 
 ```ruby
-child_run_id = step(:start_child) { SendInvoiceWorkflow.perform_later(invoice.id).job_id }
-completion = step.wait_for_workflow(:child_finished, child_run_id, timeout: 1.hour)
+completion = step.invoke(:send_invoice, SendInvoiceWorkflow, invoice.id, timeout: 1.hour)
 ```
+
+If child startup needs custom code, return the enqueued job or run id from a block:
+
+```ruby
+completion = step.invoke(:send_invoice, timeout: 1.hour) do
+  SendInvoiceWorkflow.perform_later(invoice.id, source: "renewal")
+end
+```
+
+Fan out to child workflows and wait for all of them:
+
+```ruby
+completions = step.invoke_each(:send_invoice, invoices, timeout: 1.hour, concurrency: 25) do |invoice|
+  step.workflow(SendInvoiceWorkflow, invoice.id, key: invoice.id)
+end
+```
+
+The block passed to `step.invoke_each` only declares child workflow requests. DurableFlow starts each child inside a named durable step, then waits for matching child completion events. This mirrors Inngest `step.invoke` and Restate workflow calls while keeping Ruby call sites explicit.
+
+For workflows that read better as explicit starts, use the builder form:
+
+```ruby
+completions = step.child_workflows(:send_invoices, timeout: 1.hour) do |children|
+  invoices.each do |invoice|
+    children.workflow(SendInvoiceWorkflow, invoice.id, key: invoice.id)
+  end
+end
+```
+
+If the item itself knows how to start its child workflow, it can provide a stable `workflow_key` and either `perform_later` or `workflow_class` with `workflow_args` / `workflow_kwargs`:
+
+```ruby
+class SendInvoiceRequest
+  def initialize(invoice)
+    @invoice = invoice
+  end
+
+  def workflow_key = @invoice.id
+  def workflow_class = SendInvoiceWorkflow
+  def workflow_args = [ @invoice.id ]
+end
+```
+
+`step.invoke_each` and `step.child_workflows` start every child in the batch before waiting for the first one. Pass `concurrency:` to process requests in fixed-size batches. Child failures raise `DurableFlow::ChildWorkflowFailedError` in the parent workflow.
+
+If a parent should collect child failures and decide what to do, pass `on_failure: :return`:
+
+```ruby
+completions = step.invoke_each(:deliver_invoice, invoices, timeout: 1.hour, on_failure: :return) do |invoice|
+  step.workflow(DeliverInvoiceWorkflow, invoice.id, key: invoice.id)
+end
+
+failed = completions.select { |completion| completion.fetch("status") == "failed" }
+```
+
+The default is `on_failure: :raise`, which fails the parent workflow when a child finishes failed. Returned failure completions include the child run id, status, workflow class, and error fields from the child completion event.
 
 Write structured workflow logs:
 
 ```ruby
-step(:create_refund) do
+step.run(:create_refund) do
   log.info("Creating refund", refund_id: refund.id, amount_cents: refund.amount_cents)
   Refunds.create!(refund)
 end
@@ -349,14 +413,25 @@ end
 Parallel or high-cardinality work: fan out to child workflows.
 
 ```ruby
-child_run_ids = step(:start_children) do
-  account.users.find_each.map { |user| SyncUserWorkflow.perform_later(user.id).job_id }
-end
-
-child_run_ids.each do |run_id|
-  step.wait_for_workflow("child-#{run_id}", run_id, timeout: 30.minutes)
+step.invoke_each(:sync_user, account.users.to_a, timeout: 30.minutes, concurrency: 25) do |user|
+  step.workflow(SyncUserWorkflow, user.id, key: user.id)
 end
 ```
+
+## Definition DAGs
+
+DurableFlow can statically analyze a workflow's `perform` method and produce a conservative definition graph from durable primitives:
+
+```ruby
+graph = DurableFlow::DefinitionAnalyzer.call(IvwDailyDeliveryWorkflow)
+graph.nodes # durable steps, sleeps, waits, calls, fan-out groups
+graph.edges # possible execution order, including branch conditions
+graph.warnings # dynamic Ruby that could not be represented precisely
+```
+
+The analyzer uses Prism and recognizes calls such as `step.run`, `step.sleep_until`, `step.wait_for_event`, `step.invoke`, and `step.invoke_each`. It does not execute workflow code. Ruby branches become conditional edges, fan-out calls become grouped nodes, and dynamic loops with hidden durable steps are reported as warnings.
+
+Runtime timelines remain the source of truth for a specific run; definition DAGs are the static map.
 
 ## Rules
 
@@ -428,7 +503,7 @@ class TrialOnboardingWorkflowTest < ActiveSupport::TestCase
 end
 ```
 
-Useful helpers include `perform_durable_flow_jobs`, `resume_workflows_for`, `travel_to_next_workflow_wake`, `durable_flow_run_for`, `durable_flow_timeline_for`, `assert_workflow_completed`, `assert_workflow_sleeping`, `assert_workflow_waiting_for`, `assert_step_succeeded`, `assert_step_result`, `assert_step_attempts`, `assert_workflow_log`, `assert_step_log`, `capture_durable_flow_changes`, and `assert_durable_flow_change`.
+Useful helpers include `perform_durable_flow_jobs`, `perform_durable_flow_until_idle`, `resume_workflows_for`, `travel_to_next_workflow_wake`, `durable_flow_run_for`, `durable_flow_timeline_for`, `assert_workflow_completed`, `assert_workflow_sleeping`, `assert_workflow_waiting_for`, `assert_workflow_waiting_for_workflow`, `assert_step_succeeded`, `assert_step_result`, `assert_step_attempts`, `assert_workflow_log`, `assert_step_log`, `capture_durable_flow_changes`, and `assert_durable_flow_change`.
 
 Run the suite against the vendored Rails copy:
 
@@ -445,7 +520,7 @@ RAILS_VERSION=8.1.3 mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-25 runs, 212 assertions, 0 failures, 0 errors, 0 skips
+49 runs, 346 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Publishing

@@ -5,6 +5,24 @@ module DurableFlow
 
   class MissingStepResultError < Error; end
 
+  class ChildWorkflowFailedError < Error
+    attr_reader :run_id, :workflow_class, :error_class, :error_message
+
+    def initialize(run_id:, workflow_class:, error_class: nil, error_message: nil)
+      @run_id = run_id
+      @workflow_class = workflow_class
+      @error_class = error_class
+      @error_message = error_message
+
+      details = [ workflow_class, run_id ].compact.join(" ")
+      message = "Child workflow #{details} failed"
+      message = "#{message}: #{error_class}" if error_class.present?
+      message = "#{message} - #{error_message}" if error_message.present?
+
+      super(message)
+    end
+  end
+
   class WaitTimeoutError < Error
     attr_reader :event_name, :step_name
 
