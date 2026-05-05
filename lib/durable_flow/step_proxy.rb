@@ -6,8 +6,16 @@ module DurableFlow
       @workflow = workflow
     end
 
+    def run(name, start: nil, isolated: false, &block)
+      @workflow.step(name, start: start, isolated: isolated, &block)
+    end
+
     def sleep(name, duration = nil, **options)
       @workflow.sleep_step(name, duration, until_time: options[:until] || options[:until_time])
+    end
+
+    def sleep_until(name, time)
+      sleep(name, until: time)
     end
 
     def wait_for_event(name, event: nil, timeout: nil, match: {}, allow_past_events: false)
@@ -35,8 +43,29 @@ module DurableFlow
       @workflow.child_workflow(name, workflow_class, *args, timeout: timeout, **kwargs, &block)
     end
 
+    def invoke(name, workflow_class = nil, *args, timeout: nil, **kwargs, &block)
+      @workflow.invoke_workflow(name, workflow_class, *args, timeout: timeout, **kwargs, &block)
+    end
+
+    def child_workflows(name, collection = nil, key: nil, timeout: nil, concurrency: nil, &block)
+      @workflow.child_workflows(name, collection, key: key, timeout: timeout, concurrency: concurrency, &block)
+    end
+
+    def invoke_each(name, collection, timeout: nil, concurrency: nil, &block)
+      @workflow.invoke_workflows(name, collection, timeout: timeout, concurrency: concurrency, &block)
+    end
+
     def each_child_workflow(name, collection, key:, timeout: nil, &block)
       @workflow.each_child_workflow(name, collection, key: key, timeout: timeout, &block)
+    end
+
+    def workflow(workflow_class, *args, key:, **kwargs)
+      ChildWorkflowBuilder::Request.new(
+        workflow_key: key.to_s,
+        workflow_class: workflow_class,
+        workflow_args: args,
+        workflow_kwargs: kwargs
+      )
     end
   end
 end

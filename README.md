@@ -7,17 +7,17 @@ It lets you write long-running business workflows as normal Ruby methods. Side e
 ```ruby
 class WelcomeWorkflow < DurableFlow::Workflow
   def perform(user_id:, trial_id:)
-    user = step(:load_user) { User.find(user_id) }
+    user = step.run(:load_user) { User.find(user_id) }
 
-    step(:send_welcome) { UserMailer.welcome(user).deliver_now }
+    step.run(:send_welcome) { UserMailer.welcome(user).deliver_now }
 
     step.sleep(:trial_delay, 1.day)
 
-    trial = step(:start_trial) { Billing.start_trial!(user, trial_id:) }
+    trial = step.run(:start_trial) { Billing.start_trial!(user, trial_id:) }
 
     event = step.wait_for_event(:trial_confirmed, timeout: 7.days, match: { trial_id: trial.id })
 
-    step(:finalize) { user.update!(onboarded_at: Time.current, confirmed_at: event[:confirmed_at]) }
+    step.run(:finalize) { user.update!(onboarded_at: Time.current, confirmed_at: event[:confirmed_at]) }
   end
 end
 ```
@@ -285,7 +285,7 @@ Rails.event.notify(:trial_activated, trial_id: trial.id, source: "checkout")
 Memoized side-effect step:
 
 ```ruby
-order = step(:create_order) { Order.create!(cart:) }
+order = step.run(:create_order) { Order.create!(cart:) }
 ```
 
 Durable sleep:
@@ -293,6 +293,7 @@ Durable sleep:
 ```ruby
 step.sleep(:retry_tomorrow, 1.day)
 step.sleep(:wait_until_send_at, until: campaign.send_at)
+step.sleep_until(:wait_until_send_at, campaign.send_at)
 ```
 
 Wait for a Rails event:
@@ -307,24 +308,60 @@ Use a different event name than the step name:
 event = step.wait_for_event(:wait_for_charge, event: :stripe_charge_succeeded, match: { charge_id: charge.id })
 ```
 
-Wait for a child workflow:
+Invoke a child workflow and wait for its result:
 
 ```ruby
-completion = step.child_workflow(:send_invoice, SendInvoiceWorkflow, invoice.id, timeout: 1.hour)
+completion = step.invoke(:send_invoice, SendInvoiceWorkflow, invoice.id, timeout: 1.hour)
 ```
 
 If child startup needs custom code, return the enqueued job or run id from a block:
 
 ```ruby
-completion = step.child_workflow(:send_invoice, timeout: 1.hour) do
+completion = step.invoke(:send_invoice, timeout: 1.hour) do
   SendInvoiceWorkflow.perform_later(invoice.id, source: "renewal")
 end
 ```
 
+Fan out to child workflows and wait for all of them:
+
+```ruby
+completions = step.invoke_each(:send_invoice, invoices, timeout: 1.hour, concurrency: 25) do |invoice|
+  step.workflow(SendInvoiceWorkflow, invoice.id, key: invoice.id)
+end
+```
+
+The block passed to `step.invoke_each` only declares child workflow requests. DurableFlow starts each child inside a named durable step, then waits for matching child completion events. This mirrors Inngest `step.invoke` and Restate workflow calls while keeping Ruby call sites explicit.
+
+For workflows that read better as explicit starts, use the builder form:
+
+```ruby
+completions = step.child_workflows(:send_invoices, timeout: 1.hour) do |children|
+  invoices.each do |invoice|
+    children.workflow(SendInvoiceWorkflow, invoice.id, key: invoice.id)
+  end
+end
+```
+
+If the item itself knows how to start its child workflow, it can provide a stable `workflow_key` and either `perform_later` or `workflow_class` with `workflow_args` / `workflow_kwargs`:
+
+```ruby
+class SendInvoiceRequest
+  def initialize(invoice)
+    @invoice = invoice
+  end
+
+  def workflow_key = @invoice.id
+  def workflow_class = SendInvoiceWorkflow
+  def workflow_args = [ @invoice.id ]
+end
+```
+
+`step.invoke_each` and `step.child_workflows` start every child in the batch before waiting for the first one. Pass `concurrency:` to process requests in fixed-size batches. Child failures raise `DurableFlow::ChildWorkflowFailedError` in the parent workflow.
+
 Write structured workflow logs:
 
 ```ruby
-step(:create_refund) do
+step.run(:create_refund) do
   log.info("Creating refund", refund_id: refund.id, amount_cents: refund.amount_cents)
   Refunds.create!(refund)
 end
@@ -356,10 +393,25 @@ end
 Parallel or high-cardinality work: fan out to child workflows.
 
 ```ruby
-step.each_child_workflow(:sync_user, account.users.to_a, key: :id, timeout: 30.minutes) do |user|
-  SyncUserWorkflow.perform_later(user.id)
+step.invoke_each(:sync_user, account.users.to_a, timeout: 30.minutes, concurrency: 25) do |user|
+  step.workflow(SyncUserWorkflow, user.id, key: user.id)
 end
 ```
+
+## Definition DAGs
+
+DurableFlow can statically analyze a workflow's `perform` method and produce a conservative definition graph from durable primitives:
+
+```ruby
+graph = DurableFlow::DefinitionAnalyzer.call(IvwDailyDeliveryWorkflow)
+graph.nodes # durable steps, sleeps, waits, calls, fan-out groups
+graph.edges # possible execution order, including branch conditions
+graph.warnings # dynamic Ruby that could not be represented precisely
+```
+
+The analyzer uses Prism and recognizes calls such as `step.run`, `step.sleep_until`, `step.wait_for_event`, `step.invoke`, and `step.invoke_each`. It does not execute workflow code. Ruby branches become conditional edges, fan-out calls become grouped nodes, and dynamic loops with hidden durable steps are reported as warnings.
+
+Runtime timelines remain the source of truth for a specific run; definition DAGs are the static map.
 
 ## Rules
 

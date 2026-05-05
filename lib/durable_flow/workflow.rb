@@ -39,14 +39,15 @@ module DurableFlow
       end
     end
 
-    def wait_for_event_step(name, event_name:, timeout:, match:, allow_past_events: false)
+    def wait_for_event_step(name, event_name:, timeout:, match:, allow_past_events: false, &block)
       durable_step(name) do
         step_record = current_workflow_step
         wait = find_or_initialize_wait(step_record, event_name: event_name, timeout: timeout, match: match)
 
         if (event = matched_event_for(wait, allow_past_events: allow_past_events))
           wait.update!(status: "matched", workflow_event: event)
-          event.payload_value
+          payload = event.payload_value
+          block ? block.call(payload) : payload
         elsif wait.timeout_at && Time.current >= wait.timeout_at
           wait.update!(status: "timed_out")
           step_record.update!(status: "failed", metadata: step_record.metadata_hash.merge("timeout_at" => wait.timeout_at.utc.iso8601(9)))
@@ -75,28 +76,68 @@ module DurableFlow
 
     def child_workflow(name, workflow_class = nil, *args, timeout: nil, **kwargs, &block)
       base_name = name.to_s
-      run_id = durable_step("#{base_name}_start") do
-        child = if block
-          block.arity.zero? ? block.call : block.call(workflow_class)
-        else
-          raise ArgumentError, "Provide a workflow class or block for child workflow #{name.inspect}" unless workflow_class
+      child = start_child_workflow_step("#{base_name}_start", workflow_class, *args, **kwargs, &block)
 
-          workflow_class.perform_later(*args, **kwargs)
+      wait_for_child_workflow("#{base_name}_wait", child, timeout: timeout)
+    end
+
+    def invoke_workflow(name, workflow_class = nil, *args, timeout: nil, **kwargs, &block)
+      child_workflow(name, workflow_class, *args, timeout: timeout, **kwargs, &block)
+    end
+
+    def invoke_workflows(name, collection, timeout: nil, concurrency: nil, &block)
+      raise ArgumentError, "Provide a block that returns workflow requests" unless block
+
+      requests = collection.map do |item|
+        request = block.call(item)
+        unless request.respond_to?(:workflow_key)
+          raise ArgumentError, "invoke_each blocks must return a workflow request with a stable workflow_key"
         end
 
-        extract_child_workflow_run_id(child)
+        request
       end
 
-      wait_for_workflow("#{base_name}_wait", run_id, timeout: timeout)
+      child_workflows(name, requests, timeout: timeout, concurrency: concurrency)
+    end
+
+    def child_workflows(name, collection = nil, key: nil, timeout: nil, concurrency: nil, &block)
+      if collection.nil?
+        raise ArgumentError, "Provide a child workflow collection or builder block" unless block
+
+        builder = ChildWorkflowBuilder.new
+        block.call(builder)
+        collection = builder.requests
+        block = nil
+        key ||= :workflow_key
+      end
+
+      batches = child_workflow_batches(collection, concurrency)
+
+      batches.flat_map do |batch|
+        children = batch.map do |item|
+          item_key = child_workflow_item_key(item, key)
+          child = start_child_workflow_step("#{name}_#{item_key}_start") do
+            block ? block.call(item) : start_child_workflow_request(item)
+          end
+
+          child.merge("key" => item_key)
+        end
+
+        children.map do |child|
+          completion = wait_for_child_workflow("#{name}_#{child.fetch("key")}_wait", child, timeout: timeout)
+          completion.to_h.with_indifferent_access.merge(
+            "key" => child.fetch("key"),
+            "run_id" => child.fetch("run_id"),
+            "workflow_class" => child["workflow_class"] || completion_value(completion, :workflow_class),
+          ).compact
+        end
+      end
     end
 
     def each_child_workflow(name, collection, key:, timeout: nil, &block)
       raise ArgumentError, "Provide a block that starts each child workflow" unless block
 
-      collection.map do |item|
-        item_key = child_workflow_item_key(item, key)
-        child_workflow("#{name}_#{item_key}", timeout: timeout) { block.call(item) }
-      end
+      child_workflows(name, collection, key: key, timeout: timeout, &block)
     end
 
     def log
@@ -120,8 +161,8 @@ module DurableFlow
           end
 
           mark_workflow_running!
-          block.call
-          complete_workflow!
+          result = block.call
+          complete_workflow!(result)
         rescue Pause => pause
           persist_interrupted_workflow!(pause.status)
         rescue ActiveJob::Continuation::Interrupt => interrupt
@@ -336,7 +377,7 @@ module DurableFlow
         )
       end
 
-      def complete_workflow!
+      def complete_workflow!(result = nil)
         workflow_run.update!(
           status: "completed",
           completed_at: Time.current,
@@ -344,11 +385,15 @@ module DurableFlow
           last_error: nil,
         )
 
-        DurableFlow.notify(DurableFlow::WORKFLOW_COMPLETED_EVENT, {
+        payload = {
           run_id: workflow_run.run_id,
           job_id: job_id,
           workflow_class: self.class.name,
-        })
+          result: result,
+        }
+
+        DurableFlow.notify(DurableFlow::WORKFLOW_COMPLETED_EVENT, payload)
+        DurableFlow.notify(DurableFlow::WORKFLOW_FINISHED_EVENT, payload.merge(status: "completed"))
       end
 
       def fail_workflow!(error)
@@ -363,13 +408,52 @@ module DurableFlow
           },
         )
 
-        DurableFlow.notify(DurableFlow::WORKFLOW_FAILED_EVENT, {
+        payload = {
           run_id: workflow_run.run_id,
           job_id: job_id,
           workflow_class: self.class.name,
           error_class: error.class.name,
           error_message: error.message,
-        })
+        }
+
+        DurableFlow.notify(DurableFlow::WORKFLOW_FAILED_EVENT, payload)
+        DurableFlow.notify(DurableFlow::WORKFLOW_FINISHED_EVENT, payload.merge(status: "failed"))
+      end
+
+      def start_child_workflow_step(name, workflow_class = nil, *args, **kwargs, &block)
+        durable_step(name) do
+          child = if block
+            block.arity.zero? ? block.call : block.call(workflow_class)
+          else
+            raise ArgumentError, "Provide a workflow class or block for child workflow #{name.inspect}" unless workflow_class
+
+            workflow_class.perform_later(*args, **kwargs)
+          end
+
+          child_workflow_start_payload(child, workflow_class)
+        end
+      end
+
+      def wait_for_child_workflow(name, child, timeout: nil)
+        child = child.to_h.stringify_keys
+        wait_for_event_step(
+          name,
+          event_name: DurableFlow::WORKFLOW_FINISHED_EVENT,
+          timeout: timeout,
+          match: { run_id: child.fetch("run_id") },
+          allow_past_events: true,
+        ) do |completion|
+          raise_child_workflow_failed!(completion) if completion_value(completion, :status) == "failed"
+
+          completion
+        end
+      end
+
+      def child_workflow_start_payload(child, workflow_class = nil)
+        {
+          "run_id" => extract_child_workflow_run_id(child),
+          "workflow_class" => child_workflow_class_name(child, workflow_class),
+        }.compact
       end
 
       def extract_child_workflow_run_id(child)
@@ -381,6 +465,8 @@ module DurableFlow
       end
 
       def child_workflow_item_key(item, key)
+        key ||= :workflow_key
+
         value = if key.respond_to?(:call)
           key.call(item)
         elsif item.respond_to?(:fetch)
@@ -390,6 +476,71 @@ module DurableFlow
         end
 
         value.to_s
+      end
+
+      def child_workflow_batches(collection, concurrency)
+        items = collection.to_a
+        return [ items ] unless concurrency
+
+        size = concurrency.to_i
+        raise ArgumentError, "Child workflow concurrency must be at least 1" if size < 1
+
+        items.each_slice(size).to_a
+      end
+
+      def start_child_workflow_request(request)
+        return request.perform_later if request.respond_to?(:perform_later)
+
+        unless request.respond_to?(:workflow_class)
+          raise ArgumentError, "Child workflow request must respond to perform_later or workflow_class"
+        end
+
+        workflow_class = request.workflow_class
+        args = request.respond_to?(:workflow_args) ? Array(request.workflow_args) : []
+        kwargs = child_workflow_request_kwargs(request)
+
+        workflow_class.perform_later(*args, **kwargs)
+      end
+
+      def child_workflow_request_kwargs(request)
+        kwargs = if request.respond_to?(:workflow_kwargs)
+          request.workflow_kwargs
+        elsif request.respond_to?(:workflow_arguments)
+          request.workflow_arguments
+        else
+          {}
+        end
+
+        kwargs ||= {}
+        kwargs.respond_to?(:symbolize_keys) ? kwargs.symbolize_keys : kwargs.to_h
+      end
+
+      def child_workflow_class_name(child, workflow_class = nil)
+        return workflow_class.name if workflow_class.respond_to?(:name)
+        return child.class.name if child.respond_to?(:job_id)
+
+        nil
+      end
+
+      def raise_child_workflow_failed!(completion)
+        raise ChildWorkflowFailedError.new(
+          run_id: completion_value(completion, :run_id),
+          workflow_class: completion_value(completion, :workflow_class),
+          error_class: completion_value(completion, :error_class),
+          error_message: completion_value(completion, :error_message),
+        )
+      end
+
+      def completion_value(payload, key)
+        return unless payload.respond_to?(:[])
+
+        if payload.respond_to?(:key?) && payload.key?(key)
+          payload[key]
+        elsif payload.respond_to?(:key?) && payload.key?(key.to_s)
+          payload[key.to_s]
+        else
+          payload[key]
+        end
       end
 
       def durable_flow_time_from(value, explicit_time: nil)

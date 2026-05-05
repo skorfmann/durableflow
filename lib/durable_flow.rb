@@ -6,6 +6,8 @@ require "active_job/continuation"
 require "active_record"
 require "active_support/core_ext/numeric/time"
 require "active_support/core_ext/object/blank"
+require "active_support/core_ext/hash/indifferent_access"
+require "active_support/core_ext/hash/keys"
 require "active_support/core_ext/module/attribute_accessors"
 require "securerandom"
 
@@ -14,8 +16,11 @@ require "durable_flow/errors"
 require "durable_flow/serializer"
 require "durable_flow/schema"
 require "durable_flow/live"
+require "durable_flow/definition_graph"
+require "durable_flow/definition_analyzer"
 require "durable_flow/workflow_logger"
 require "durable_flow/workflow_timeline"
+require "durable_flow/child_workflow_builder"
 require "durable_flow/models/application_record"
 require "durable_flow/models/workflow_run"
 require "durable_flow/models/workflow_step"
@@ -39,6 +44,7 @@ module DurableFlow
 
   WORKFLOW_COMPLETED_EVENT = "durable_flow.workflow.completed"
   WORKFLOW_FAILED_EVENT = "durable_flow.workflow.failed"
+  WORKFLOW_FINISHED_EVENT = "durable_flow.workflow.finished"
   IGNORED_EVENT_NAMESPACES = %w[
     action_controller
     action_mailbox

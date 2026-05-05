@@ -39,6 +39,16 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     end
   end
 
+  class NativeStepApiWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform(wake_at)
+      step.run(:before_sleep) { self.class.events << :before_sleep }
+      step.sleep_until(:nap, wake_at)
+      step.run(:after_sleep) { self.class.events << :after_sleep }
+    end
+  end
+
   class WaitWorkflow < DurableFlow::Workflow
     cattr_accessor :events, default: []
 
@@ -85,6 +95,19 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     end
   end
 
+  class InvokeApiParentWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform(value)
+      completion = step.invoke(:child, ChildApiChildWorkflow, value, timeout: 1.hour)
+
+      step.run(:finish) do
+        self.class.events << [ :finished, completion[:run_id] ]
+        true
+      end
+    end
+  end
+
   class FastChildApiParentWorkflow < DurableFlow::Workflow
     cattr_accessor :events, default: []
 
@@ -116,6 +139,78 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
         self.class.events = completions.map { |completion| completion[:run_id] }
         true
       end
+    end
+  end
+
+  ChildWorkflowRequest = Struct.new(:value, keyword_init: true) do
+    def workflow_key
+      value
+    end
+
+    def workflow_class
+      ChildApiChildWorkflow
+    end
+
+    def workflow_args
+      [ value ]
+    end
+  end
+
+  class ChildWorkflowsApiParentWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform(values)
+      requests = values.map { |value| ChildWorkflowRequest.new(value: value) }
+      completions = step.child_workflows(:children, requests, timeout: 1.hour)
+
+      step(:finish) do
+        self.class.events = completions.map { |completion| [ completion.fetch("key"), completion.fetch("result") ] }
+        true
+      end
+    end
+  end
+
+  class ChildWorkflowsBuilderParentWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform(values)
+      completions = step.child_workflows(:children, timeout: 1.hour) do |children|
+        values.each do |value|
+          children.workflow(ChildApiChildWorkflow, value, key: value)
+        end
+      end
+
+      step(:finish) do
+        self.class.events = completions.map { |completion| [ completion.fetch("key"), completion.fetch("result") ] }
+        true
+      end
+    end
+  end
+
+  class InvokeEachApiParentWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform(values)
+      completions = step.invoke_each(:children, values, timeout: 1.hour) do |value|
+        step.workflow(ChildApiChildWorkflow, value, key: value)
+      end
+
+      step.run(:finish) do
+        self.class.events = completions.map { |completion| [ completion.fetch("key"), completion.fetch("result") ] }
+        true
+      end
+    end
+  end
+
+  class FailedChildApiChildWorkflow < DurableFlow::Workflow
+    def perform
+      step(:work) { raise "boom" }
+    end
+  end
+
+  class FailedChildApiParentWorkflow < DurableFlow::Workflow
+    def perform
+      step.child_workflow(:child, FailedChildApiChildWorkflow, timeout: 1.hour)
     end
   end
 
@@ -259,6 +354,28 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     end
   end
 
+  test "native step api runs and sleeps until an absolute time" do
+    NativeStepApiWorkflow.events = []
+
+    freeze_time do
+      wake_at = 12.minutes.from_now
+
+      NativeStepApiWorkflow.perform_later(wake_at)
+      perform_enqueued_jobs(at: Time.current)
+
+      run = DurableFlow::WorkflowRun.find_by!(workflow_class: NativeStepApiWorkflow.name)
+      assert_equal "sleeping", run.status
+      assert_equal [ :before_sleep ], NativeStepApiWorkflow.events
+      assert_equal wake_at.utc.iso8601(9), run.workflow_steps.find_by!(name: "nap").metadata_hash.fetch("wake_at")
+
+      travel 12.minutes
+      perform_enqueued_jobs(at: Time.current)
+
+      assert_equal "completed", run.reload.status
+      assert_equal [ :before_sleep, :after_sleep ], NativeStepApiWorkflow.events
+    end
+  end
+
   test "sleep step passes through immediately for past until time" do
     SleepUntilWorkflow.events = []
 
@@ -382,6 +499,23 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     assert_equal [ [ :finished, child.run_id ] ], ChildApiParentWorkflow.events
   end
 
+  test "invoke helper starts and waits for a child workflow" do
+    ChildApiChildWorkflow.calls = 0
+    InvokeApiParentWorkflow.events = []
+
+    InvokeApiParentWorkflow.perform_later("hello")
+    3.times { perform_enqueued_jobs(at: Time.current) }
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: InvokeApiParentWorkflow.name)
+    child = DurableFlow::WorkflowRun.find_by!(workflow_class: ChildApiChildWorkflow.name)
+
+    assert_equal "completed", parent.reload.status
+    assert_equal "completed", child.status
+    assert_equal 1, ChildApiChildWorkflow.calls
+    assert_equal [ [ :finished, child.run_id ] ], InvokeApiParentWorkflow.events
+    assert_equal %w[child_start child_wait finish], parent.workflow_steps.order(:created_at).pluck(:name)
+  end
+
   test "child workflow helper does not start child twice on replay" do
     ChildApiChildWorkflow.calls = 0
     ChildApiParentWorkflow.events = []
@@ -426,7 +560,87 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     assert_equal "completed", parent.status
     assert_equal 2, ChildApiChildWorkflow.calls
     assert_equal child_run_ids, EachChildApiParentWorkflow.events
-    assert_equal %w[children_a_start children_a_wait children_b_start children_b_wait finish], parent.workflow_steps.order(:created_at).pluck(:name)
+    assert_equal %w[children_a_start children_b_start children_a_wait children_b_wait finish], parent.workflow_steps.order(:created_at).pluck(:name)
+  end
+
+  test "child workflows helper starts every child before waiting" do
+    ChildApiChildWorkflow.calls = 0
+    ChildWorkflowsApiParentWorkflow.events = []
+
+    ChildWorkflowsApiParentWorkflow.perform_later(%w[a b])
+    perform_enqueued_jobs(only: ChildWorkflowsApiParentWorkflow, at: Time.current)
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: ChildWorkflowsApiParentWorkflow.name)
+
+    assert_equal "waiting", parent.status
+    assert_equal %w[children_a_start children_b_start children_a_wait], parent.workflow_steps.order(:created_at).pluck(:name)
+    assert_equal 2, enqueued_jobs.count { |payload| payload[:job] == ChildApiChildWorkflow }
+
+    3.times { perform_enqueued_jobs(at: Time.current) }
+
+    assert_equal "completed", parent.reload.status
+    assert_equal 2, ChildApiChildWorkflow.calls
+    assert_equal [ [ "a", "A" ], [ "b", "B" ] ], ChildWorkflowsApiParentWorkflow.events
+  end
+
+  test "child workflows helper accepts builder block" do
+    ChildApiChildWorkflow.calls = 0
+    ChildWorkflowsBuilderParentWorkflow.events = []
+
+    ChildWorkflowsBuilderParentWorkflow.perform_later(%w[a b])
+    perform_enqueued_jobs(only: ChildWorkflowsBuilderParentWorkflow, at: Time.current)
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: ChildWorkflowsBuilderParentWorkflow.name)
+
+    assert_equal "waiting", parent.status
+    assert_equal %w[children_a_start children_b_start children_a_wait], parent.workflow_steps.order(:created_at).pluck(:name)
+    assert_equal 2, enqueued_jobs.count { |payload| payload[:job] == ChildApiChildWorkflow }
+
+    3.times { perform_enqueued_jobs(at: Time.current) }
+
+    assert_equal "completed", parent.reload.status
+    assert_equal [ [ "a", "A" ], [ "b", "B" ] ], ChildWorkflowsBuilderParentWorkflow.events
+  end
+
+  test "invoke_each fans out through workflow requests" do
+    ChildApiChildWorkflow.calls = 0
+    InvokeEachApiParentWorkflow.events = []
+
+    InvokeEachApiParentWorkflow.perform_later(%w[a b])
+    perform_enqueued_jobs(only: InvokeEachApiParentWorkflow, at: Time.current)
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: InvokeEachApiParentWorkflow.name)
+
+    assert_equal "waiting", parent.status
+    assert_equal %w[children_a_start children_b_start children_a_wait], parent.workflow_steps.order(:created_at).pluck(:name)
+    assert_equal 2, enqueued_jobs.count { |payload| payload[:job] == ChildApiChildWorkflow }
+
+    3.times { perform_enqueued_jobs(at: Time.current) }
+
+    assert_equal "completed", parent.reload.status
+    assert_equal 2, ChildApiChildWorkflow.calls
+    assert_equal [ [ "a", "A" ], [ "b", "B" ] ], InvokeEachApiParentWorkflow.events
+  end
+
+  test "child workflow helper fails parent when child fails" do
+    FailedChildApiParentWorkflow.perform_later
+
+    perform_enqueued_jobs(at: Time.current)
+
+    assert_raises RuntimeError do
+      perform_enqueued_jobs(at: Time.current)
+    end
+
+    assert_raises DurableFlow::ChildWorkflowFailedError do
+      perform_enqueued_jobs(at: Time.current)
+    end
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: FailedChildApiParentWorkflow.name)
+    child = DurableFlow::WorkflowRun.find_by!(workflow_class: FailedChildApiChildWorkflow.name)
+
+    assert_equal "failed", child.status
+    assert_equal "failed", parent.status
+    assert_equal DurableFlow::ChildWorkflowFailedError.name, parent.last_error.fetch("class")
   end
 
   test "framework structured events are not stored as workflow events" do
