@@ -25,6 +25,23 @@ module DurableFlow
       )
     end
 
+    def fail!(error)
+      update!(
+        status: "failed",
+        metadata: metadata_hash.merge("last_error" => error_payload(error)),
+      )
+    end
+
+    def retry!(error, retry_at: nil)
+      metadata = metadata_hash.merge("last_error" => error_payload(error))
+      metadata["retry_at"] = retry_at.utc.iso8601(9) if retry_at
+
+      update!(
+        status: "retrying",
+        metadata: metadata,
+      )
+    end
+
     def metadata_hash
       metadata.presence || {}
     end
@@ -44,5 +61,14 @@ module DurableFlow
         updated_at: updated_at,
       }
     end
+
+    private
+      def error_payload(error)
+        {
+          "class" => error.class.name,
+          "message" => error.message,
+          "backtrace" => Array(error.backtrace).first(10),
+        }
+      end
   end
 end

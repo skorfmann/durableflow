@@ -147,6 +147,8 @@ Verified behavior:
 - Durable sleep through `perform_later(wait_until:)`.
 - Event waits through `Rails.event`.
 - Parent workflows waiting for child workflow completion.
+- Parent workflows choosing whether child failures raise or return completion payloads.
+- Active Job retry/discard handling reflected in workflow and step status.
 - Solid Queue `1.1.2` integration.
 - Database-backed workflow execution leases to prevent concurrent execution of the same run.
 - Opt-in live lifecycle broadcasts through `DurableFlow.live_broadcaster`.
@@ -358,6 +360,18 @@ end
 
 `step.invoke_each` and `step.child_workflows` start every child in the batch before waiting for the first one. Pass `concurrency:` to process requests in fixed-size batches. Child failures raise `DurableFlow::ChildWorkflowFailedError` in the parent workflow.
 
+If a parent should collect child failures and decide what to do, pass `on_failure: :return`:
+
+```ruby
+completions = step.invoke_each(:deliver_invoice, invoices, timeout: 1.hour, on_failure: :return) do |invoice|
+  step.workflow(DeliverInvoiceWorkflow, invoice.id, key: invoice.id)
+end
+
+failed = completions.select { |completion| completion.fetch("status") == "failed" }
+```
+
+The default is `on_failure: :raise`, which fails the parent workflow when a child finishes failed. Returned failure completions include the child run id, status, workflow class, and error fields from the child completion event.
+
 Write structured workflow logs:
 
 ```ruby
@@ -500,7 +514,7 @@ RAILS_VERSION=8.1.3 mise exec ruby@3.4 -- bundle exec rake test
 Current suite:
 
 ```text
-25 runs, 212 assertions, 0 failures, 0 errors, 0 skips
+49 runs, 346 assertions, 0 failures, 0 errors, 0 skips
 ```
 
 ## Publishing

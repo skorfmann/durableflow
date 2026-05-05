@@ -214,6 +214,100 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     end
   end
 
+  class FailedChildReturnParentWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform
+      completion = step.invoke(:child, FailedChildApiChildWorkflow, timeout: 1.hour, on_failure: :return)
+
+      step(:finish) do
+        self.class.events << [ completion[:status], completion[:error_class], completion[:run_id] ]
+        completion
+      end
+    end
+  end
+
+  class FailedValueChildWorkflow < DurableFlow::Workflow
+    def perform(value)
+      step(:work) { raise "boom #{value}" }
+    end
+  end
+
+  class InvokeEachReturnParentWorkflow < DurableFlow::Workflow
+    cattr_accessor :events, default: []
+
+    def perform(values)
+      completions = step.invoke_each(:children, values, timeout: 1.hour, on_failure: :return) do |value|
+        workflow_class = value == "bad" ? FailedValueChildWorkflow : ChildApiChildWorkflow
+        step.workflow(workflow_class, value, key: value)
+      end
+
+      step(:finish) do
+        self.class.events = completions.map do |completion|
+          [ completion.fetch("key"), completion.fetch("status"), completion["result"], completion["error_class"] ]
+        end
+      end
+    end
+  end
+
+  class InvalidChildFailurePolicyWorkflow < DurableFlow::Workflow
+    def perform
+      step.invoke(:child, ChildApiChildWorkflow, "hello", on_failure: :wat)
+    end
+  end
+
+  class RetryableWorkflow < DurableFlow::Workflow
+    retry_on RuntimeError, wait: 0.seconds, attempts: 2
+
+    cattr_accessor :calls, default: 0
+
+    def perform
+      step(:work) do
+        self.class.calls += 1
+        raise "boom" if self.class.calls == 1
+
+        "ok"
+      end
+    end
+  end
+
+  class RetryExhaustedWorkflow < DurableFlow::Workflow
+    retry_on RuntimeError, wait: 0.seconds, attempts: 2
+
+    cattr_accessor :calls, default: 0
+
+    def perform
+      step(:work) do
+        self.class.calls += 1
+        raise "boom"
+      end
+    end
+  end
+
+  class RetryStoppedBlockWorkflow < DurableFlow::Workflow
+    retry_on RuntimeError, wait: 0.seconds, attempts: 1 do |workflow, error|
+      workflow.class.events << [ :stopped, error.message ]
+    end
+
+    cattr_accessor :events, default: []
+
+    def perform
+      step(:work) { raise "boom" }
+    end
+  end
+
+  class DiscardedWorkflow < DurableFlow::Workflow
+    discard_on RuntimeError do |workflow, error|
+      workflow.class.events << [ :discarded, error.message ]
+    end
+
+    cattr_accessor :events, default: []
+
+    def perform
+      step(:work) { raise "boom" }
+    end
+  end
+
   class LeasedWorkflow < DurableFlow::Workflow
     cattr_accessor :calls, default: 0
 
@@ -641,6 +735,138 @@ class DurableFlowWorkflowTest < DurableFlowTestCase
     assert_equal "failed", child.status
     assert_equal "failed", parent.status
     assert_equal DurableFlow::ChildWorkflowFailedError.name, parent.last_error.fetch("class")
+  end
+
+  test "child workflow helper can return child failure completion" do
+    FailedChildReturnParentWorkflow.events = []
+
+    FailedChildReturnParentWorkflow.perform_later
+    perform_enqueued_jobs(at: Time.current)
+
+    assert_raises RuntimeError do
+      perform_enqueued_jobs(at: Time.current)
+    end
+
+    perform_enqueued_jobs(at: Time.current)
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: FailedChildReturnParentWorkflow.name)
+    child = DurableFlow::WorkflowRun.find_by!(workflow_class: FailedChildApiChildWorkflow.name)
+
+    assert_equal "completed", parent.reload.status
+    assert_equal "failed", child.status
+    assert_equal [ [ "failed", "RuntimeError", child.run_id ] ], FailedChildReturnParentWorkflow.events
+    assert_equal "succeeded", parent.workflow_steps.find_by!(name: "child_wait").status
+  end
+
+  test "invoke_each can return failed child completions without failing parent" do
+    ChildApiChildWorkflow.calls = 0
+    InvokeEachReturnParentWorkflow.events = []
+
+    InvokeEachReturnParentWorkflow.perform_later(%w[ok bad])
+    perform_enqueued_jobs(only: InvokeEachReturnParentWorkflow, at: Time.current)
+
+    assert_raises RuntimeError do
+      perform_enqueued_jobs(only: FailedValueChildWorkflow, at: Time.current)
+    end
+
+    2.times { perform_enqueued_jobs(at: Time.current) }
+
+    parent = DurableFlow::WorkflowRun.find_by!(workflow_class: InvokeEachReturnParentWorkflow.name)
+
+    assert_equal "completed", parent.reload.status
+    assert_equal [
+      [ "ok", "completed", "OK", nil ],
+      [ "bad", "failed", nil, "RuntimeError" ],
+    ], InvokeEachReturnParentWorkflow.events
+  end
+
+  test "child workflow helper validates on_failure policy" do
+    InvalidChildFailurePolicyWorkflow.perform_later
+
+    assert_raises ArgumentError do
+      perform_enqueued_jobs(at: Time.current)
+    end
+
+    run = DurableFlow::WorkflowRun.find_by!(workflow_class: InvalidChildFailurePolicyWorkflow.name)
+    assert_equal "failed", run.status
+    assert_equal "ArgumentError", run.last_error.fetch("class")
+  end
+
+  test "retry_on leaves workflow retrying and reruns the failed step" do
+    RetryableWorkflow.calls = 0
+
+    RetryableWorkflow.perform_later
+    perform_enqueued_jobs(at: Time.current)
+
+    run = DurableFlow::WorkflowRun.find_by!(workflow_class: RetryableWorkflow.name)
+    step = run.workflow_steps.find_by!(name: "work")
+
+    assert_equal "retrying", run.status
+    assert_equal "retrying", step.status
+    assert_equal 1, step.attempts
+    assert_equal "RuntimeError", run.last_error.fetch("class")
+    assert_equal 1, enqueued_jobs.count { |payload| payload[:job] == RetryableWorkflow }
+
+    perform_enqueued_jobs(at: Time.current)
+
+    assert_equal "completed", run.reload.status
+    assert_equal "succeeded", step.reload.status
+    assert_equal 2, step.attempts
+    assert_equal 2, RetryableWorkflow.calls
+    assert_equal "ok", step.result_value
+  end
+
+  test "retry_on marks workflow failed after retry attempts are exhausted" do
+    RetryExhaustedWorkflow.calls = 0
+
+    RetryExhaustedWorkflow.perform_later
+    perform_enqueued_jobs(at: Time.current)
+
+    run = DurableFlow::WorkflowRun.find_by!(workflow_class: RetryExhaustedWorkflow.name)
+    step = run.workflow_steps.find_by!(name: "work")
+
+    assert_equal "retrying", run.status
+    assert_equal "retrying", step.status
+
+    assert_raises RuntimeError do
+      perform_enqueued_jobs(at: Time.current)
+    end
+
+    assert_equal "failed", run.reload.status
+    assert_equal "failed", step.reload.status
+    assert_equal 2, step.attempts
+    assert_equal 2, RetryExhaustedWorkflow.calls
+    assert_equal "RuntimeError", run.last_error.fetch("class")
+  end
+
+  test "retry_on exhaustion block still marks workflow failed" do
+    RetryStoppedBlockWorkflow.events = []
+
+    RetryStoppedBlockWorkflow.perform_later
+    perform_enqueued_jobs(at: Time.current)
+
+    run = DurableFlow::WorkflowRun.find_by!(workflow_class: RetryStoppedBlockWorkflow.name)
+    step = run.workflow_steps.find_by!(name: "work")
+
+    assert_equal "failed", run.status
+    assert_equal "failed", step.status
+    assert_equal [ [ :stopped, "boom" ] ], RetryStoppedBlockWorkflow.events
+    assert_equal "RuntimeError", run.last_error.fetch("class")
+  end
+
+  test "discard_on marks workflow failed after running discard block" do
+    DiscardedWorkflow.events = []
+
+    DiscardedWorkflow.perform_later
+    perform_enqueued_jobs(at: Time.current)
+
+    run = DurableFlow::WorkflowRun.find_by!(workflow_class: DiscardedWorkflow.name)
+    step = run.workflow_steps.find_by!(name: "work")
+
+    assert_equal "failed", run.status
+    assert_equal "failed", step.status
+    assert_equal [ [ :discarded, "boom" ] ], DiscardedWorkflow.events
+    assert_equal "RuntimeError", run.last_error.fetch("class")
   end
 
   test "framework structured events are not stored as workflow events" do
