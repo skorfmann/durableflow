@@ -282,6 +282,8 @@ Wake it with a Rails event:
 Rails.event.notify(:trial_activated, trial_id: trial.id, source: "checkout")
 ```
 
+For a dense API reference optimized for coding agents, see [docs/llm-reference.md](docs/llm-reference.md).
+
 ## Step API
 
 Memoized side-effect step:
