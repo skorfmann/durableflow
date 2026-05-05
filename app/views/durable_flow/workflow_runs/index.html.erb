@@ -52,6 +52,10 @@
           <td>
             <%= link_to run.workflow_class, workflow_run_path(run.run_id), class: "df-run-link" %>
             <div class="df-run-id df-mono"><%= run.run_id %></div>
+            <div class="df-run-actions">
+              <%= link_to "Timeline", workflow_run_path(run.run_id) %>
+              <%= link_to "Definition DAG", definition_workflow_run_path(run.run_id) %>
+            </div>
           </td>
           <td>
             <span class="df-status <%= durable_flow_status_class(run.status) %>"><%= run.status %></span>

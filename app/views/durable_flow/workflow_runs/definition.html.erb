@@ -1,0 +1,145 @@
+<div class="df-header">
+  <div>
+    <div class="df-kicker">
+      <%= link_to "Workflow Runs", workflow_runs_path %> /
+      <%= link_to "Run", workflow_run_path(@workflow_run.run_id) %> /
+      Definition DAG
+    </div>
+    <h1><%= @workflow_run.workflow_class %></h1>
+    <p class="df-muted df-mono"><%= @workflow_run.run_id %></p>
+  </div>
+  <div class="df-header-actions">
+    <%= link_to "Timeline", workflow_run_path(@workflow_run.run_id), class: "df-button" %>
+    <span class="df-status <%= durable_flow_status_class(@workflow_run.status) %>"><%= @workflow_run.status %></span>
+  </div>
+</div>
+
+<% if @definition_error.present? %>
+  <section class="df-panel">
+    <div class="df-empty">
+      <strong>Definition graph unavailable.</strong>
+      <div style="margin-top: 8px;"><%= @definition_error %></div>
+    </div>
+  </section>
+<% elsif @definition_graph.nodes.empty? %>
+  <section class="df-panel">
+    <div class="df-empty">
+      No durable primitives were found in <%= @workflow_run.workflow_class %>#perform.
+    </div>
+  </section>
+<% else %>
+  <% layout = durable_flow_definition_graph_layout(@definition_graph) %>
+
+  <div class="df-definition-grid">
+    <section class="df-panel">
+      <div class="df-panel-header">
+        <div>
+          <div class="df-panel-title">Definition Graph</div>
+          <div class="df-panel-subtitle">
+            <%= pluralize(@definition_graph.nodes.size, "node") %>,
+            <%= pluralize(@definition_graph.edges.size, "edge") %>,
+            runtime status overlaid from this run
+          </div>
+        </div>
+      </div>
+
+      <div class="df-dag-wrap">
+        <svg
+          class="df-dag-svg"
+          viewBox="0 0 <%= layout.fetch(:width) %> <%= layout.fetch(:height) %>"
+          role="img"
+          aria-label="DurableFlow definition DAG for <%= @workflow_run.workflow_class %>"
+        >
+          <defs>
+            <marker id="df-dag-arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#8b93a1" />
+            </marker>
+          </defs>
+
+          <% @definition_graph.edges.each do |edge| %>
+            <% from = layout.fetch(:positions)[edge.from] %>
+            <% to = layout.fetch(:positions)[edge.to] %>
+            <% next unless from && to %>
+            <% start_x = from.fetch(:x) + (layout.fetch(:node_width) / 2) %>
+            <% start_y = from.fetch(:y) + layout.fetch(:node_height) %>
+            <% end_x = to.fetch(:x) + (layout.fetch(:node_width) / 2) %>
+            <% end_y = to.fetch(:y) %>
+            <% mid_y = start_y + ((end_y - start_y) / 2.0) %>
+
+            <path
+              class="df-dag-edge"
+              d="M <%= start_x %> <%= start_y %> C <%= start_x %> <%= mid_y %>, <%= end_x %> <%= mid_y %>, <%= end_x %> <%= end_y %>"
+              marker-end="url(#df-dag-arrow)"
+            />
+
+            <% if edge.condition.present? %>
+              <text class="df-dag-edge-label" x="<%= end_x + 16 %>" y="<%= mid_y - 5 %>">
+                <title><%= edge.condition %></title>
+                <%= durable_flow_definition_short_condition(edge.condition) %>
+              </text>
+            <% end %>
+          <% end %>
+
+          <% @definition_graph.nodes.each do |node| %>
+            <% position = layout.fetch(:positions).fetch(node.id) %>
+            <% status = durable_flow_definition_node_status(node, @step_statuses_by_name) %>
+            <% cls = durable_flow_definition_class(node, @step_statuses_by_name) %>
+            <% metadata = [ durable_flow_node_label(node.type), node.target_workflow_class ].compact.join(" / ") %>
+
+            <g class="df-dag-node" transform="translate(<%= position.fetch(:x) %> <%= position.fetch(:y) %>)">
+              <rect class="df-dag-card <%= cls %>" width="<%= layout.fetch(:node_width) %>" height="<%= layout.fetch(:node_height) %>" rx="8" />
+              <text class="df-dag-node-name" x="16" y="28"><%= node.name %></text>
+              <text class="df-dag-node-meta" x="16" y="52"><%= metadata %></text>
+              <text class="df-dag-status-label" x="<%= layout.fetch(:node_width) - 16 %>" y="28" text-anchor="end"><%= status %></text>
+            </g>
+          <% end %>
+        </svg>
+      </div>
+    </section>
+
+    <aside>
+      <section class="df-panel">
+        <div class="df-panel-header">
+          <div>
+            <div class="df-panel-title">Graph Summary</div>
+            <div class="df-panel-subtitle">Static analysis of the workflow definition</div>
+          </div>
+        </div>
+
+        <div class="df-side-section">
+          <div class="df-kv">
+            <div class="df-kv-key">Workflow</div>
+            <div class="df-kv-value"><%= @definition_graph.workflow_class %></div>
+          </div>
+          <div class="df-kv">
+            <div class="df-kv-key">Source</div>
+            <div class="df-kv-value"><%= @definition_graph.source_file %></div>
+          </div>
+          <div class="df-kv">
+            <div class="df-kv-key">Nodes</div>
+            <div class="df-kv-value"><%= @definition_graph.nodes.map(&:name).join(", ") %></div>
+          </div>
+        </div>
+
+        <% if @definition_graph.warnings.any? %>
+          <div class="df-side-section">
+            <h3>Warnings</h3>
+            <% @definition_graph.warnings.each do |warning| %>
+              <div class="df-warning"><%= warning %></div>
+            <% end %>
+          </div>
+        <% end %>
+      </section>
+
+      <section class="df-panel" style="margin-top: 16px;">
+        <div class="df-panel-header">
+          <div>
+            <div class="df-panel-title">Graph JSON</div>
+            <div class="df-panel-subtitle">DefinitionGraph#to_h</div>
+          </div>
+        </div>
+        <pre class="df-code df-definition-json"><%= durable_flow_json(@definition_graph.to_h) %></pre>
+      </section>
+    </aside>
+  </div>
+<% end %>

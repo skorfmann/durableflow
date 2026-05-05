@@ -4,7 +4,10 @@
     <h1><%= @workflow_run.workflow_class %></h1>
     <p class="df-muted df-mono"><%= @workflow_run.run_id %></p>
   </div>
-  <span class="df-status <%= durable_flow_status_class(@workflow_run.status) %>"><%= @workflow_run.status %></span>
+  <div class="df-header-actions">
+    <%= link_to "Definition DAG", definition_workflow_run_path(@workflow_run.run_id), class: "df-button" %>
+    <span class="df-status <%= durable_flow_status_class(@workflow_run.status) %>"><%= @workflow_run.status %></span>
+  </div>
 </div>
 
 <div class="df-meta-grid">

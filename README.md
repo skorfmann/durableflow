@@ -30,11 +30,15 @@ DurableFlow is alpha software. The API and storage model will likely change as t
 
 ## UI
 
-DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, step timelines, waits, workflow logs, arguments, and errors.
+DurableFlow ships with a small mountable Rails engine for inspecting workflow runs, definition DAGs, step timelines, waits, workflow logs, arguments, and errors.
 
 ![DurableFlow workflow runs index](docs/screenshots/workflow-runs.png)
 
 ![DurableFlow workflow run detail](docs/screenshots/workflow-run-detail.png)
+
+Each run detail links to a definition DAG view that statically analyzes the workflow class and overlays runtime status from that run.
+
+![DurableFlow workflow definition DAG](docs/screenshots/workflow-definition-dag.png)
 
 ## Live Updates
 

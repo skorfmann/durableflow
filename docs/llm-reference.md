@@ -467,6 +467,14 @@ The analyzer uses source code analysis and does not execute workflow code. It re
 
 Runtime timelines remain the source of truth for a specific run. Definition DAGs are a static map.
 
+The mountable engine exposes a run-scoped definition graph view:
+
+```text
+/durable_flow/workflow_runs/:run_id/definition
+```
+
+That page constantizes the run's workflow class, analyzes `#perform`, renders an SVG DAG, and overlays runtime status from the selected run. Child workflow nodes are matched to runtime `_start` / `_wait` steps, and fanout nodes aggregate matching prefixed child steps.
+
 ### Timeline API
 
 ```ruby
