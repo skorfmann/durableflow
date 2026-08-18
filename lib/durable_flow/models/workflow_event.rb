@@ -24,17 +24,7 @@ module DurableFlow
       return false unless actual.respond_to?(:[])
 
       expected.all? do |key, expected_value|
-        actual_value = if actual.respond_to?(:key?) && actual.key?(key)
-          actual[key]
-        elsif actual.respond_to?(:key?) && actual.key?(key.to_s)
-          actual[key.to_s]
-        elsif actual.respond_to?(:key?) && actual.key?(key.to_sym)
-          actual[key.to_sym]
-        else
-          actual[key]
-        end
-
-        subset?(expected_value, actual_value)
+        subset?(expected_value, IndifferentAccess.fetch(actual, key))
       end
     end
 

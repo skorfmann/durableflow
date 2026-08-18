@@ -4,6 +4,8 @@ module DurableFlow
   class WorkflowRunsController < ActionController::Base
     layout "durable_flow/application"
 
+    before_action :load_workflow_run, only: %i[show definition]
+
     helper_method :durable_flow_duration,
       :durable_flow_definition_class,
       :durable_flow_definition_graph_layout,
@@ -21,14 +23,10 @@ module DurableFlow
     end
 
     def show
-      @workflow_run = WorkflowRun.find_by!(run_id: params[:run_id])
-      @workflow_timeline = @workflow_run.timeline
     end
 
     def definition
-      @workflow_run = WorkflowRun.find_by!(run_id: params[:run_id])
       @workflow_class = @workflow_run.workflow_class.safe_constantize
-      @workflow_timeline = @workflow_run.timeline
       @step_statuses_by_name = @workflow_run.workflow_steps.index_by(&:name).transform_values(&:status)
 
       if @workflow_class.nil?
@@ -43,6 +41,11 @@ module DurableFlow
     end
 
     private
+      def load_workflow_run
+        @workflow_run = WorkflowRun.find_by!(run_id: params[:run_id])
+        @workflow_timeline = @workflow_run.timeline
+      end
+
       def durable_flow_definition_node_status(node, statuses_by_name)
         direct_status = statuses_by_name[node.name]
         return direct_status if direct_status

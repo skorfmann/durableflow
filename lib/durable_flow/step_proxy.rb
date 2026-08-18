@@ -29,7 +29,7 @@ module DurableFlow
     end
 
     def wait_for_workflow(name, workflow_or_run_id, timeout: nil)
-      run_id = workflow_or_run_id.respond_to?(:job_id) ? workflow_or_run_id.job_id : workflow_or_run_id.to_s
+      run_id = JobReference.run_id_for(workflow_or_run_id)
       wait_for_event(
         name,
         event: DurableFlow::WORKFLOW_COMPLETED_EVENT,

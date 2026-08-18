@@ -65,12 +65,12 @@ module DurableFlow
       durable_step(name) do
         step_record = current_workflow_step
         metadata = step_record.metadata_hash
-        wake_at = durable_flow_parse_time(metadata["wake_at"]) || durable_flow_time_from(duration, explicit_time: until_time)
+        wake_at = TimeValues.parse(metadata["wake_at"]) || TimeValues.from(duration, explicit_time: until_time)
 
         raise ArgumentError, "Provide a duration or until: time for sleep step #{name.inspect}" unless wake_at
 
         if Time.current < wake_at
-          metadata["wake_at"] = wake_at.utc.iso8601(9)
+          metadata["wake_at"] = TimeValues.format(wake_at)
           step_record.update!(status: "sleeping", metadata: metadata)
           pause_or_interrupt!(reason: :sleeping, status: "sleeping", resume_options: { wait_until: wake_at })
         end
@@ -90,14 +90,14 @@ module DurableFlow
           block ? block.call(payload) : payload
         elsif wait.timeout_at && Time.current >= wait.timeout_at
           wait.update!(status: "timed_out")
-          step_record.update!(status: "failed", metadata: step_record.metadata_hash.merge("timeout_at" => wait.timeout_at.utc.iso8601(9)))
+          step_record.update!(status: "failed", metadata: step_record.metadata_hash.merge("timeout_at" => TimeValues.format(wait.timeout_at)))
           raise WaitTimeoutError.new(event_name: event_name.to_s, step_name: name.to_s)
         else
           step_record.update!(
             status: "waiting",
             metadata: step_record.metadata_hash.merge(
               "event_name" => event_name.to_s,
-              "timeout_at" => wait.timeout_at&.utc&.iso8601(9),
+              "timeout_at" => (TimeValues.format(wait.timeout_at) if wait.timeout_at),
             ).compact,
           )
 
@@ -173,7 +173,7 @@ module DurableFlow
           completion.to_h.with_indifferent_access.merge(
             "key" => child.fetch("key"),
             "run_id" => child.fetch("run_id"),
-            "workflow_class" => child["workflow_class"] || completion_value(completion, :workflow_class),
+            "workflow_class" => child["workflow_class"] || IndifferentAccess.fetch(completion, :workflow_class),
           ).compact
         end
       end
@@ -335,12 +335,12 @@ module DurableFlow
             event_name: event_name.to_s,
             status: "pending",
             match: Serializer.dump(match || {}),
-            timeout_at: (durable_flow_time_from(timeout) if timeout),
+            timeout_at: (TimeValues.from(timeout) if timeout),
           )).tap do |wait|
           updates = {}
           updates[:event_name] = event_name.to_s if wait.event_name != event_name.to_s
           updates[:match] = Serializer.dump(match || {}) if wait.match.blank?
-          updates[:timeout_at] = durable_flow_time_from(timeout) if timeout && wait.timeout_at.blank?
+          updates[:timeout_at] = TimeValues.from(timeout) if timeout && wait.timeout_at.blank?
           wait.update!(updates) if updates.any?
         end
       end
@@ -387,12 +387,18 @@ module DurableFlow
 
       def record_enqueued_workflow
         ensure_workflow_run!
-        workflow_run.update!(
+        persist_workflow_run!(
           status: workflow_run.status.presence || "enqueued",
-          serialized_job: serialize,
-          queue_name: queue_name,
-          priority: priority,
+          **enqueue_attributes,
         )
+      end
+
+      def persist_workflow_run!(status:, **attributes)
+        workflow_run.update!(status: status, serialized_job: serialize, **attributes)
+      end
+
+      def enqueue_attributes
+        { queue_name: queue_name, priority: priority }
       end
 
       def ensure_workflow_run!
@@ -407,55 +413,40 @@ module DurableFlow
       end
 
       def mark_workflow_running!
-        workflow_run.update!(
+        persist_workflow_run!(
           status: "running",
           started_at: workflow_run.started_at || Time.current,
-          serialized_job: serialize,
-          queue_name: queue_name,
-          priority: priority,
+          **enqueue_attributes,
         )
       end
 
       def persist_interrupted_workflow!(status)
-        workflow_run.update!(
+        persist_workflow_run!(
           status: status,
           interrupted_at: Time.current,
-          serialized_job: serialize,
-          queue_name: queue_name,
-          priority: priority,
+          **enqueue_attributes,
         )
       end
 
       def persist_retrying_workflow!(error)
         ensure_workflow_run!
 
-        workflow_run.update!(
+        persist_workflow_run!(
           status: "retrying",
           interrupted_at: Time.current,
-          serialized_job: serialize,
-          queue_name: queue_name,
-          priority: priority,
-          last_error: error_payload(error),
+          last_error: ErrorPayload.for(error),
+          **enqueue_attributes,
         )
       end
 
       def complete_workflow!(result = nil)
-        workflow_run.update!(
+        persist_workflow_run!(
           status: "completed",
           completed_at: Time.current,
-          serialized_job: serialize,
           last_error: nil,
         )
 
-        payload = {
-          run_id: workflow_run.run_id,
-          job_id: job_id,
-          workflow_class: self.class.name,
-          result: result,
-        }
-
-        DurableFlow.notify(DurableFlow::WORKFLOW_COMPLETED_EVENT, payload)
-        DurableFlow.notify(DurableFlow::WORKFLOW_FINISHED_EVENT, payload.merge(status: "completed"))
+        notify_workflow_finished(DurableFlow::WORKFLOW_COMPLETED_EVENT, status: "completed", result: result)
       end
 
       def fail_workflow_after_unhandled_error!(error)
@@ -467,31 +458,30 @@ module DurableFlow
       end
 
       def fail_workflow!(error)
-        workflow_run.update!(
+        persist_workflow_run!(
           status: "failed",
           failed_at: Time.current,
-          serialized_job: serialize,
-          last_error: error_payload(error),
+          last_error: ErrorPayload.for(error),
         )
 
+        notify_workflow_finished(
+          DurableFlow::WORKFLOW_FAILED_EVENT,
+          status: "failed",
+          error_class: error.class.name,
+          error_message: error.message,
+        )
+      end
+
+      def notify_workflow_finished(event_name, status:, **details)
         payload = {
           run_id: workflow_run.run_id,
           job_id: job_id,
           workflow_class: self.class.name,
-          error_class: error.class.name,
-          error_message: error.message,
+          **details,
         }
 
-        DurableFlow.notify(DurableFlow::WORKFLOW_FAILED_EVENT, payload)
-        DurableFlow.notify(DurableFlow::WORKFLOW_FINISHED_EVENT, payload.merge(status: "failed"))
-      end
-
-      def error_payload(error)
-        {
-          "class" => error.class.name,
-          "message" => error.message,
-          "backtrace" => Array(error.backtrace).first(10),
-        }
+        DurableFlow.notify(event_name, payload)
+        DurableFlow.notify(DurableFlow::WORKFLOW_FINISHED_EVENT, payload.merge(status: status))
       end
 
       def retry_at_from(options)
@@ -526,7 +516,7 @@ module DurableFlow
           match: { run_id: child.fetch("run_id") },
           allow_past_events: true,
         ) do |completion|
-          if completion_value(completion, :status) == "failed" && on_failure == :raise
+          if IndifferentAccess.fetch(completion, :status) == "failed" && on_failure == :raise
             raise_child_workflow_failed!(completion)
           end
 
@@ -558,7 +548,7 @@ module DurableFlow
       end
 
       def extract_child_workflow_run_id(child)
-        run_id = child.respond_to?(:job_id) ? child.job_id : child.to_s
+        run_id = JobReference.run_id_for(child)
 
         raise ArgumentError, "Child workflow start must return a job, run id, or object responding to job_id" if run_id.blank?
 
@@ -627,38 +617,11 @@ module DurableFlow
 
       def raise_child_workflow_failed!(completion)
         raise ChildWorkflowFailedError.new(
-          run_id: completion_value(completion, :run_id),
-          workflow_class: completion_value(completion, :workflow_class),
-          error_class: completion_value(completion, :error_class),
-          error_message: completion_value(completion, :error_message),
+          run_id: IndifferentAccess.fetch(completion, :run_id),
+          workflow_class: IndifferentAccess.fetch(completion, :workflow_class),
+          error_class: IndifferentAccess.fetch(completion, :error_class),
+          error_message: IndifferentAccess.fetch(completion, :error_message),
         )
-      end
-
-      def completion_value(payload, key)
-        return unless payload.respond_to?(:[])
-
-        if payload.respond_to?(:key?) && payload.key?(key)
-          payload[key]
-        elsif payload.respond_to?(:key?) && payload.key?(key.to_s)
-          payload[key.to_s]
-        else
-          payload[key]
-        end
-      end
-
-      def durable_flow_time_from(value, explicit_time: nil)
-        return explicit_time.to_time if explicit_time.respond_to?(:to_time)
-        return nil if value.nil?
-        return value.to_time if value.respond_to?(:to_time)
-
-        Time.current + value
-      end
-
-      def durable_flow_parse_time(value)
-        return if value.blank?
-        return value if value.is_a?(Time)
-
-        Time.iso8601(value.to_s)
       end
   end
 end
