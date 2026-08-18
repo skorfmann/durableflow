@@ -215,28 +215,29 @@ module DurableFlow
         }
       end
 
-      def find_perform_node(node)
+      def find_node(node, skip: nil, &predicate)
         return if node.nil?
-        return node if node.is_a?(Prism::DefNode) && node.name == :perform && node.location.start_line == perform_line
+        return if skip&.call(node)
+        return node if predicate.call(node)
 
         node.child_nodes.compact.each do |child|
-          found = find_perform_node(child)
+          found = find_node(child, skip: skip, &predicate)
           return found if found
         end
 
         nil
       end
 
-      def durable_call_in(node)
-        return if node.nil? || node.is_a?(Prism::IfNode)
-        return node if durable_call?(node)
-
-        node.child_nodes.compact.each do |child|
-          found = durable_call_in(child)
-          return found if found
+      def find_perform_node(node)
+        find_node(node) do |candidate|
+          candidate.is_a?(Prism::DefNode) && candidate.name == :perform && candidate.location.start_line == perform_line
         end
+      end
 
-        nil
+      def durable_call_in(node)
+        find_node(node, skip: ->(candidate) { candidate.is_a?(Prism::IfNode) }) do |candidate|
+          durable_call?(candidate)
+        end
       end
 
       def warn_about_hidden_durable_calls(statement)
@@ -274,18 +275,9 @@ module DurableFlow
       end
 
       def workflow_request_call_in(node)
-        return if node.nil?
-
-        if node.is_a?(Prism::CallNode) && node.name == :workflow
-          return node
+        find_node(node) do |candidate|
+          candidate.is_a?(Prism::CallNode) && candidate.name == :workflow
         end
-
-        node.child_nodes.compact.each do |child|
-          found = workflow_request_call_in(child)
-          return found if found
-        end
-
-        nil
       end
 
       def call_arguments(call_node)

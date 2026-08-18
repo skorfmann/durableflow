@@ -167,7 +167,7 @@ module DurableFlow
       scope = WorkflowStep.where(status: "sleeping")
       scope = scope.where(workflow_run: durable_flow_resolve_run(workflow_or_run)) if workflow_or_run
 
-      scope.filter_map { |step| parse_workflow_wake_at(step.metadata_hash["wake_at"]) }.min
+      scope.filter_map { |step| TimeValues.parse(step.metadata_hash["wake_at"]) }.min
     end
 
     def capture_durable_flow_changes
@@ -234,13 +234,6 @@ module DurableFlow
         end
       end
 
-      def parse_workflow_wake_at(value)
-        return if value.blank?
-        return value if value.is_a?(Time)
-
-        Time.iso8601(value.to_s)
-      end
-
       def durable_flow_performable_job_enqueued?(at:)
         return false unless respond_to?(:enqueued_jobs)
 
@@ -251,7 +244,7 @@ module DurableFlow
       end
 
       def workflow_class_name(workflow_class)
-        workflow_class.respond_to?(:name) ? workflow_class.name : workflow_class.to_s
+        JobReference.class_name_for(workflow_class)
       end
   end
 end
