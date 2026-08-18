@@ -43,4 +43,54 @@ class DurableFlowTestCase < ActiveSupport::TestCase
     clear_enqueued_jobs
     clear_performed_jobs
   end
+
+  private
+    def create_workflow_run(status: "enqueued", workflow_class: "FactoryWorkflow", **attributes)
+      DurableFlow::WorkflowRun.create!(
+        run_id: attributes.delete(:run_id) || SecureRandom.uuid,
+        job_id: attributes.delete(:job_id) || SecureRandom.uuid,
+        workflow_class: workflow_class,
+        status: status,
+        **attributes
+      )
+    end
+
+    def create_workflow_step(workflow_run, name: "step", status: "pending", **attributes)
+      DurableFlow::WorkflowStep.create!(
+        workflow_run: workflow_run,
+        name: name.to_s,
+        status: status,
+        **attributes
+      )
+    end
+
+    def create_workflow_event(name: "approved", payload: {}, occurred_at: Time.current, **attributes)
+      DurableFlow::WorkflowEvent.create!(
+        name: name.to_s,
+        payload: DurableFlow::Serializer.dump(payload),
+        occurred_at: occurred_at,
+        **attributes
+      )
+    end
+
+    def create_workflow_wait(workflow_run:, workflow_step:, event_name: "approved", match: {}, status: "pending", **attributes)
+      DurableFlow::WorkflowWait.create!(
+        workflow_run: workflow_run,
+        workflow_step: workflow_step,
+        event_name: event_name.to_s,
+        status: status,
+        match: DurableFlow::Serializer.dump(match),
+        **attributes
+      )
+    end
+
+    def create_workflow_log(workflow_run:, level: "info", message: "message", data: {}, **attributes)
+      DurableFlow::WorkflowLog.create!(
+        workflow_run: workflow_run,
+        level: level,
+        message: message,
+        data: DurableFlow::Serializer.dump(data),
+        **attributes
+      )
+    end
 end
