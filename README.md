@@ -205,6 +205,26 @@ Mount the optional workflow run viewer:
 mount DurableFlow::Engine => "/durable_flow"
 ```
 
+The UI exposes workflow arguments, step results, logs, and errors, so access is denied by default until authentication is configured. Pick one:
+
+```ruby
+# config/initializers/durable_flow.rb
+
+# Option 1: HTTP basic authentication.
+DurableFlow.ui_http_basic_auth = {
+  name: Rails.application.credentials.dig(:durable_flow, :ui_name),
+  password: Rails.application.credentials.dig(:durable_flow, :ui_password),
+}
+
+# Option 2: Inherit from a controller that enforces your app's authentication.
+DurableFlow.ui_base_controller_class = "AdminController"
+
+# Option 3: Explicitly allow unauthenticated access (not recommended outside
+# development). You can also restrict access at the routing layer instead,
+# for example with a Devise `authenticate` block or route constraint.
+DurableFlow.ui_allow_unauthenticated_access = true
+```
+
 ## Configure
 
 Workflow runs use a database-backed execution lease so concurrent workers do not execute the same run at the same time. The lease is refreshed as steps start and continuations checkpoint.

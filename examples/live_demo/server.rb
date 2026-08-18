@@ -39,6 +39,8 @@ end
 ActiveRecord::Base.establish_connection(adapter: "sqlite3", database: DB_PATH, pool: 10)
 ActiveRecord.default_timezone = :utc
 
+DurableFlow.ui_allow_unauthenticated_access = true
+
 DurableFlowLiveDemoApp.initialize!
 DurableFlow::Schema.define
 DurableFlow.unsubscribe_from_rails_events!
