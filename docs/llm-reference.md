@@ -70,6 +70,15 @@ Mount the optional UI:
 mount DurableFlow::Engine => "/durable_flow"
 ```
 
+The UI denies access by default. Configure one of:
+
+```ruby
+# config/initializers/durable_flow.rb
+DurableFlow.ui_http_basic_auth = { name: "...", password: "..." }
+DurableFlow.ui_base_controller_class = "AdminController" # a controller enforcing authentication
+DurableFlow.ui_allow_unauthenticated_access = true # not recommended outside development
+```
+
 Configure execution leases:
 
 ```ruby

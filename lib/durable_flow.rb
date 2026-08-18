@@ -37,10 +37,15 @@ require "durable_flow/railtie"
 module DurableFlow
   NOOP_LIVE_BROADCASTER = ->(_change) {}
 
+  DEFAULT_UI_BASE_CONTROLLER_CLASS = "ActionController::Base"
+
   mattr_accessor :event_subscriber, default: nil
   mattr_accessor :execution_lock_ttl, default: 10.minutes
   mattr_accessor :live_broadcaster, default: NOOP_LIVE_BROADCASTER
   mattr_accessor :live_subscribers, default: []
+  mattr_accessor :ui_base_controller_class, default: DEFAULT_UI_BASE_CONTROLLER_CLASS
+  mattr_accessor :ui_http_basic_auth, default: nil
+  mattr_accessor :ui_allow_unauthenticated_access, default: false
 
   WORKFLOW_COMPLETED_EVENT = "durable_flow.workflow.completed"
   WORKFLOW_FAILED_EVENT = "durable_flow.workflow.failed"

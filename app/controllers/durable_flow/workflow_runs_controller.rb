@@ -1,8 +1,10 @@
 # frozen_string_literal: true
 
 module DurableFlow
-  class WorkflowRunsController < ActionController::Base
+  class WorkflowRunsController < DurableFlow.ui_base_controller_class.constantize
     layout "durable_flow/application"
+
+    before_action :durable_flow_authenticate!
 
     helper_method :durable_flow_duration,
       :durable_flow_definition_class,
@@ -43,6 +45,35 @@ module DurableFlow
     end
 
     private
+      def durable_flow_authenticate!
+        credentials = DurableFlow.ui_http_basic_auth
+
+        if credentials.present?
+          expected_name = (credentials[:name] || credentials["name"]).to_s
+          expected_password = (credentials[:password] || credentials["password"]).to_s
+
+          authenticate_or_request_with_http_basic("DurableFlow") do |name, password|
+            ActiveSupport::SecurityUtils.secure_compare(name.to_s, expected_name) &
+              ActiveSupport::SecurityUtils.secure_compare(password.to_s, expected_password)
+          end
+        elsif !durable_flow_unauthenticated_access_allowed?
+          render plain: <<~MESSAGE, status: :forbidden
+            Access to the DurableFlow UI is denied by default.
+
+            Configure one of the following in an initializer:
+
+              DurableFlow.ui_http_basic_auth = { name: "...", password: "..." }
+              DurableFlow.ui_base_controller_class = "YourAuthenticatedController"
+              DurableFlow.ui_allow_unauthenticated_access = true # not recommended
+          MESSAGE
+        end
+      end
+
+      def durable_flow_unauthenticated_access_allowed?
+        DurableFlow.ui_allow_unauthenticated_access ||
+          DurableFlow.ui_base_controller_class != DurableFlow::DEFAULT_UI_BASE_CONTROLLER_CLASS
+      end
+
       def durable_flow_definition_node_status(node, statuses_by_name)
         direct_status = statuses_by_name[node.name]
         return direct_status if direct_status
