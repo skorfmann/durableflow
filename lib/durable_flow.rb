@@ -129,6 +129,14 @@ module DurableFlow
       false
     end
 
+    def report_error(error, context: {})
+      if defined?(Rails) && Rails.respond_to?(:error)
+        Rails.error.report(error, handled: true, source: "durable_flow", context: context)
+      elsif defined?(ActiveJob::Base) && ActiveJob::Base.logger
+        ActiveJob::Base.logger.error("[DurableFlow] #{error.class}: #{error.message} #{context.inspect}")
+      end
+    end
+
     def record_event?(name)
       return false if Fiber[:durable_flow_recording_event]
 
@@ -144,9 +152,7 @@ module DurableFlow
       def broadcast_live_change(callable, change)
         callable.call(change)
       rescue StandardError => error
-        if defined?(Rails) && Rails.respond_to?(:error)
-          Rails.error.report(error, handled: true)
-        end
+        report_error(error, context: { change_type: change.type, run_id: change.run_id })
       end
   end
 end
