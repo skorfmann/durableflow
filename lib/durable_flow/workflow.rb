@@ -43,8 +43,12 @@ module DurableFlow
 
     def retry_job(options = {})
       if options[:error]
-        persist_retrying_workflow!(options[:error])
-        failed_workflow_step&.retry!(options[:error], retry_at: retry_at_from(options))
+        begin
+          persist_retrying_workflow!(options[:error])
+          failed_workflow_step&.retry!(options[:error], retry_at: retry_at_from(options))
+        rescue StandardError => persistence_error
+          DurableFlow.report_error(persistence_error, context: { run_id: workflow_run&.run_id, original_error: options[:error].class.name })
+        end
       end
 
       super
@@ -234,6 +238,8 @@ module DurableFlow
         return unless @execution_lock_owner
 
         workflow_run.release_execution_lock!(owner: @execution_lock_owner)
+      rescue StandardError => error
+        DurableFlow.report_error(error, context: { run_id: workflow_run.run_id })
       end
 
       def refresh_execution_lock!
@@ -264,7 +270,11 @@ module DurableFlow
               raise
             rescue StandardError => error
               @failed_workflow_step = step_record
-              step_record.fail!(error)
+              begin
+                step_record.fail!(error)
+              rescue StandardError => persistence_error
+                DurableFlow.report_error(persistence_error, context: { workflow_step_id: step_record.id, original_error: error.class.name })
+              end
               raise
             ensure
               @current_workflow_step = nil
@@ -464,6 +474,8 @@ module DurableFlow
 
         failed_workflow_step&.fail!(error)
         fail_workflow!(error)
+      rescue StandardError => persistence_error
+        DurableFlow.report_error(persistence_error, context: { run_id: workflow_run.run_id, original_error: error.class.name })
       end
 
       def fail_workflow!(error)

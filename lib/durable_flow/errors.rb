@@ -5,6 +5,8 @@ module DurableFlow
 
   class MissingStepResultError < Error; end
 
+  class UnresumableWorkflowError < Error; end
+
   class ChildWorkflowFailedError < Error
     attr_reader :run_id, :workflow_class, :error_class, :error_message
 
